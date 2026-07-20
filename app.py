@@ -362,8 +362,6 @@ def render_dashboard_html(records, month):
             as_, ag = bar_colors(p)
             abw = min(p, 100)
             is_channel = asm in CHANNEL_ASMS
-            row_bg = "background:#f0f9ff;border-left:3px solid #38bdf8;" if is_channel else ""
-            asm_label = f'<span style="font-size:9px;color:#0284c7;background:#e0f2fe;padding:1px 5px;border-radius:4px;margin-left:4px;">채널</span>' if is_channel else ""
             if p >= 100:
                 badge = f'<span style="background:#d1fae5;color:#065f46;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">✅ 달성</span>'
             elif p >= 70:
@@ -371,9 +369,25 @@ def render_dashboard_html(records, month):
             else:
                 badge = f'<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">🚨 미달</span>'
 
-            asm_rows += f"""
-            <div style="display:grid;grid-template-columns:100px 1fr 90px 90px 60px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;{row_bg}padding-left:8px;">
-              <span style="font-weight:700;font-size:13px;color:{'#0369a1' if is_channel else '#334155'};">{asm}{asm_label}</span>
+            if is_channel:
+                asm_rows += f"""
+            <div style="display:grid;grid-template-columns:100px 1fr 90px 90px 60px;align-items:center;gap:10px;padding:7px 0 7px 0;border-bottom:1px solid #f1f5f9;background:#f8fbff;">
+              <span style="font-size:12px;color:#0369a1;display:flex;align-items:center;gap:2px;padding-left:6px;">
+                <span style="color:#94a3b8;font-size:14px;line-height:1;">ㄴ</span>&nbsp;{asm}
+              </span>
+              <div style="background:#e0f2fe;border-radius:99px;height:7px;position:relative;">
+                <div style="width:{abw:.1f}%;background:{ag};height:100%;border-radius:99px;position:relative;opacity:0.85;">
+                  <div style="position:absolute;right:-1px;top:50%;transform:translateY(-50%);width:10px;height:10px;background:{as_};border-radius:50%;border:2px solid white;"></div>
+                </div>
+              </div>
+              <span style="font-size:11px;color:#64748b;text-align:right;">{fmt_b(a)}</span>
+              <span style="font-size:11px;color:#94a3b8;text-align:right;">{fmt_b(t)}</span>
+              <span style="font-weight:700;font-size:12px;color:{as_};text-align:right;">{p:.1f}%</span>
+            </div>"""
+            else:
+                asm_rows += f"""
+            <div style="display:grid;grid-template-columns:100px 1fr 90px 90px 60px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;padding-left:8px;">
+              <span style="font-weight:700;font-size:13px;color:#334155;">{asm}</span>
               <div style="background:#f1f5f9;border-radius:99px;height:8px;position:relative;">
                 <div style="width:{abw:.1f}%;background:{ag};height:100%;border-radius:99px;position:relative;">
                   <div style="position:absolute;right:-1px;top:50%;transform:translateY(-50%);width:12px;height:12px;background:{as_};border-radius:50%;border:2px solid white;"></div>
@@ -407,6 +421,7 @@ def render_dashboard_html(records, month):
     ts, tg = bar_colors(total_pct)
 
     asm_total_rows = ""
+    CHANNEL_ASMS = {"WINMART", "LOTTEMART"}
     for asm in ASM_LIST:
         asm_t, asm_a = 0, 0
         for sku in SKU_LIST:
@@ -426,7 +441,24 @@ def render_dashboard_html(records, month):
             badge = '<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">⚠️ 진행중</span>'
         else:
             badge = '<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">🚨 미달</span>'
-        asm_total_rows += f"""
+        is_channel = asm in CHANNEL_ASMS
+        if is_channel:
+            asm_total_rows += f"""
+        <div style="display:grid;grid-template-columns:80px 1fr 90px 90px 60px;align-items:center;gap:10px;padding:7px 0 7px 0;border-bottom:1px solid #f1f5f9;background:#f8fbff;">
+          <span style="font-size:12px;color:#0369a1;display:flex;align-items:center;gap:2px;padding-left:6px;">
+            <span style="color:#94a3b8;font-size:14px;line-height:1;">ㄴ</span>&nbsp;{asm}
+          </span>
+          <div style="background:#e0f2fe;border-radius:99px;height:7px;position:relative;">
+            <div style="width:{abw:.1f}%;background:{ag};height:100%;border-radius:99px;position:relative;opacity:0.85;">
+              <div style="position:absolute;right:-1px;top:50%;transform:translateY(-50%);width:10px;height:10px;background:{as_};border-radius:50%;border:2px solid white;"></div>
+            </div>
+          </div>
+          <span style="font-size:11px;color:#64748b;text-align:right;">{fmt_b(asm_a)}</span>
+          <span style="font-size:11px;color:#94a3b8;text-align:right;">{fmt_b(asm_t)}</span>
+          <span style="font-weight:700;font-size:12px;color:{as_};text-align:right;">{p:.1f}%</span>
+        </div>"""
+        else:
+            asm_total_rows += f"""
         <div style="display:grid;grid-template-columns:80px 1fr 90px 90px 60px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;">
           <span style="font-weight:700;font-size:13px;color:#334155;">{asm}</span>
           <div style="background:#f1f5f9;border-radius:99px;height:8px;position:relative;">

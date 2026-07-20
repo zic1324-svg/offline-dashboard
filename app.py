@@ -189,6 +189,93 @@ def month_icon(records, month):
     return "✅" if p >= 100 else "🟡" if p >= 70 else "🔴"
 
 
+# ─── Excel 파싱 ─────────────────────────────────────────────────────────────────
+def parse_excel_actuals(file_bytes):
+    import openpyxl, re
+    from io import BytesIO
+    wb = openpyxl.load_workbook(BytesIO(file_bytes), data_only=True)
+    ws = wb.active
+
+    # 월/연도 감지
+    month = year = None
+    for row in ws.iter_rows(min_row=1, max_row=10, values_only=True):
+        for cell in row:
+            if cell and 'K' in str(cell) and '/' in str(cell):
+                m = re.search(r'(\d{1,2})/(\d{4})', str(cell))
+                if m:
+                    month, year = int(m.group(1)), int(m.group(2))
+                    break
+        if month:
+            break
+    if not month:
+        raise ValueError("파일에서 월 정보(Kỳ)를 찾을 수 없습니다")
+
+    # 실적 컬럼 인덱스 (0-based)
+    SKU_COLS = {
+        "BS VÀ HMP CŨ": [14],
+        "GIẶT XẢ":      [16],
+        "PPSU":         [20],
+        "KHĂN ƯỚT":    [22, 26],
+        "SỮA TẮM":     [24],
+    }
+
+    def get_val(row, cols):
+        return sum((row[c] or 0) for c in cols if c < len(row))
+
+    result = {asm: {sku: 0 for sku in SKU_LIST} for asm in ASM_LIST}
+
+    # ASM 코드 → 대시보드 ASM명
+    ASM_CODE = {
+        "02401": "TU",
+        "03344": "VINH",
+        "00887": "LAM",
+        "01683": "HAI",
+        "00331": "QUOC",
+        "00318": "HUNG",
+        "01987": "NHU",
+        "01565": "VAN",
+    }
+    if month <= 6:
+        ASM_CODE["00323"] = "TU,HOI"
+
+    for row in ws.iter_rows(min_row=11, values_only=True):
+        if not row[0] or not row[1]:
+            continue
+        code  = str(row[0]).strip()
+        level = str(row[1]).strip()
+        name  = str(row[2]).strip() if row[2] else ''
+
+        # ASM 합계 행
+        if level == 'ASM' and name.startswith('Total - '):
+            asm = ASM_CODE.get(code)
+            if asm:
+                for sku, cols in SKU_COLS.items():
+                    result[asm][sku] += get_val(row, cols)
+            # TU,HOI 7월 이후: TU(02401) 포함
+            if month >= 7 and code == "02401":
+                for sku, cols in SKU_COLS.items():
+                    result["TU,HOI"][sku] += get_val(row, cols)
+
+        # TU,HOI 7월 이후: HOI(02191) SUP 합계 포함
+        if level == 'Total - SUP' and month >= 7 and code == "02191":
+            for sku, cols in SKU_COLS.items():
+                result["TU,HOI"][sku] += get_val(row, cols)
+
+        # WINMART / LOTTEMART (고객명 필터, 개별 행)
+        if row[4] and level not in ('Total - SUP', 'ASM'):
+            customer = str(row[4]).upper()
+            ch = None
+            if 'WINMART' in customer:
+                ch = 'WINMART'
+            elif 'LOTTE' in customer:
+                ch = 'LOTTEMART'
+            if ch:
+                for sku, cols in SKU_COLS.items():
+                    result[ch][sku] += get_val(row, cols)
+
+    return month, year, result
+
+
 # ─── HTML 렌더러 ────────────────────────────────────────────────────────────────
 def bar_colors(pct):
     if pct >= 100:
@@ -265,6 +352,7 @@ def render_dashboard_html(records, month):
 
         # ASM 드릴다운 행들
         asm_rows = ""
+        CHANNEL_ASMS = {"WINMART", "LOTTEMART"}
         for asm in ASM_LIST:
             t = get_target(asm, sku, month)
             if t is None or t == 0:
@@ -273,6 +361,9 @@ def render_dashboard_html(records, month):
             p = a / t * 100
             as_, ag = bar_colors(p)
             abw = min(p, 100)
+            is_channel = asm in CHANNEL_ASMS
+            row_bg = "background:#f0f9ff;border-left:3px solid #38bdf8;" if is_channel else ""
+            asm_label = f'<span style="font-size:9px;color:#0284c7;background:#e0f2fe;padding:1px 5px;border-radius:4px;margin-left:4px;">채널</span>' if is_channel else ""
             if p >= 100:
                 badge = f'<span style="background:#d1fae5;color:#065f46;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">✅ 달성</span>'
             elif p >= 70:
@@ -281,8 +372,8 @@ def render_dashboard_html(records, month):
                 badge = f'<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">🚨 미달</span>'
 
             asm_rows += f"""
-            <div style="display:grid;grid-template-columns:80px 1fr 90px 90px 60px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;">
-              <span style="font-weight:700;font-size:13px;color:#334155;">{asm}</span>
+            <div style="display:grid;grid-template-columns:100px 1fr 90px 90px 60px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;{row_bg}padding-left:8px;">
+              <span style="font-weight:700;font-size:13px;color:{'#0369a1' if is_channel else '#334155'};">{asm}{asm_label}</span>
               <div style="background:#f1f5f9;border-radius:99px;height:8px;position:relative;">
                 <div style="width:{abw:.1f}%;background:{ag};height:100%;border-radius:99px;position:relative;">
                   <div style="position:absolute;right:-1px;top:50%;transform:translateY(-50%);width:12px;height:12px;background:{as_};border-radius:50%;border:2px solid white;"></div>
@@ -424,43 +515,82 @@ def render_dashboard_html(records, month):
 # ─── 어드민 입력 ────────────────────────────────────────────────────────────────
 def admin_page(records, month):
     st.markdown(f"### ✏️ {month}월 실적 입력")
-    sel_asm = st.selectbox("ASM 선택", ASM_LIST, key=f"asm_sel_{month}")
-    st.markdown(f"**{sel_asm}** — {month}월 실적 (단위: VND)")
-    st.markdown("---")
 
-    inputs = {}
-    for sku in SKU_LIST:
-        t = get_target(sel_asm, sku, month)
-        if t is None:
-            st.markdown(f"- **{SKU_ICON.get(sku,'')} {sku}**: 단종 (7월~)")
-            continue
-        if t == 0:
-            continue
-        cur = get_actual(records, month, sel_asm, sku)
-        c1, c2 = st.columns([3, 2])
-        with c1:
-            val = st.number_input(
-                f"{SKU_ICON.get(sku,'')} {sku}  (목표: {fmt_b(t)})",
-                min_value=0, value=int(cur), step=1_000_000,
-                key=f"inp_{sel_asm}_{sku}_{month}", format="%d")
-        with c2:
-            p = val / t * 100 if t else 0
-            solid, _ = bar_colors(p)
-            st.markdown(f"<div style='padding-top:28px;font-weight:700;color:{solid}'>{p:.1f}%</div>", unsafe_allow_html=True)
-        inputs[sku] = val
+    tab_manual, tab_excel = st.tabs(["✏️ 수동 입력", "📂 Excel 업로드"])
 
-    st.markdown("---")
-    if st.button("💾 저장", type="primary", use_container_width=True, key=f"save_{month}"):
-        ms = str(month)
-        records.setdefault(ms, {}).setdefault(sel_asm, {})
-        for sku, val in inputs.items():
-            records[ms][sel_asm][sku] = val
-        try:
-            save_records(records)
-            st.success(f"✅ {sel_asm} {month}월 실적 저장 완료!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"저장 실패: {e}")
+    with tab_excel:
+        st.markdown("**월별 매출 Excel 파일을 업로드하면 자동으로 실적을 불러옵니다.**")
+        uploaded = st.file_uploader("Excel 파일 선택", type=["xlsx"], key=f"xl_{month}")
+        if uploaded:
+            try:
+                file_bytes = uploaded.read()
+                m, y, data = parse_excel_actuals(file_bytes)
+                st.success(f"✅ {y}년 {m}월 데이터 파싱 완료")
+
+                # 미리보기
+                preview_rows = []
+                for asm in ASM_LIST:
+                    row_data = {"ASM": asm}
+                    for sku in SKU_LIST:
+                        v = data[asm].get(sku, 0)
+                        row_data[sku] = f"{v/1e9:.2f}tỷ" if v else "-"
+                    preview_rows.append(row_data)
+                import pandas as pd
+                st.dataframe(pd.DataFrame(preview_rows).set_index("ASM"), use_container_width=True)
+
+                if st.button("💾 이 데이터로 저장", type="primary", key=f"xl_save_{month}"):
+                    ms = str(m)
+                    records.setdefault(ms, {})
+                    for asm in ASM_LIST:
+                        records[ms].setdefault(asm, {})
+                        for sku in SKU_LIST:
+                            v = data[asm].get(sku, 0)
+                            if v:
+                                records[ms][asm][sku] = v
+                    save_records(records)
+                    st.success(f"✅ {m}월 실적 저장 완료!")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"파싱 오류: {e}")
+
+    with tab_manual:
+        sel_asm = st.selectbox("ASM 선택", ASM_LIST, key=f"asm_sel_{month}")
+        st.markdown(f"**{sel_asm}** — {month}월 실적 (단위: VND)")
+        st.markdown("---")
+
+        inputs = {}
+        for sku in SKU_LIST:
+            t = get_target(sel_asm, sku, month)
+            if t is None:
+                st.markdown(f"- **{SKU_ICON.get(sku,'')} {sku}**: 단종 (7월~)")
+                continue
+            if t == 0:
+                continue
+            cur = get_actual(records, month, sel_asm, sku)
+            c1, c2 = st.columns([3, 2])
+            with c1:
+                val = st.number_input(
+                    f"{SKU_ICON.get(sku,'')} {sku}  (목표: {fmt_b(t)})",
+                    min_value=0, value=int(cur), step=1_000_000,
+                    key=f"inp_{sel_asm}_{sku}_{month}", format="%d")
+            with c2:
+                p = val / t * 100 if t else 0
+                solid, _ = bar_colors(p)
+                st.markdown(f"<div style='padding-top:28px;font-weight:700;color:{solid}'>{p:.1f}%</div>", unsafe_allow_html=True)
+            inputs[sku] = val
+
+        st.markdown("---")
+        if st.button("💾 저장", type="primary", use_container_width=True, key=f"save_{month}"):
+            ms = str(month)
+            records.setdefault(ms, {}).setdefault(sel_asm, {})
+            for sku, val in inputs.items():
+                records[ms][sel_asm][sku] = val
+            try:
+                save_records(records)
+                st.success(f"✅ {sel_asm} {month}월 실적 저장 완료!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"저장 실패: {e}")
 
 
 # ─── 메인 ──────────────────────────────────────────────────────────────────────

@@ -371,31 +371,31 @@ def render_dashboard_html(records, month):
 
             if is_channel:
                 asm_rows += f"""
-            <div style="display:grid;grid-template-columns:100px 1fr 90px 90px 60px;align-items:center;gap:10px;padding:7px 0 7px 0;border-bottom:1px solid #f1f5f9;background:#f8fbff;">
+            <div class="ar ar-ch">
               <span style="font-size:12px;color:#0369a1;display:flex;align-items:center;gap:2px;padding-left:6px;">
                 <span style="color:#94a3b8;font-size:14px;line-height:1;">ㄴ</span>&nbsp;{asm}
               </span>
-              <div style="background:#e0f2fe;border-radius:99px;height:7px;position:relative;">
+              <div class="ar-bar" style="background:#e0f2fe;border-radius:99px;height:7px;position:relative;">
                 <div style="width:{abw:.1f}%;background:{ag};height:100%;border-radius:99px;position:relative;opacity:0.85;">
                   <div style="position:absolute;right:-1px;top:50%;transform:translateY(-50%);width:10px;height:10px;background:{as_};border-radius:50%;border:2px solid white;"></div>
                 </div>
               </div>
-              <span style="font-size:11px;color:#64748b;text-align:right;">{fmt_b(a)}</span>
-              <span style="font-size:11px;color:#94a3b8;text-align:right;">{fmt_b(t)}</span>
-              <span style="font-weight:700;font-size:12px;color:{as_};text-align:right;">{p:.1f}%</span>
+              <span class="ar-num" style="font-size:11px;color:#64748b;text-align:right;">{fmt_b(a)}</span>
+              <span class="ar-num" style="font-size:11px;color:#94a3b8;text-align:right;">{fmt_b(t)}</span>
+              <span style="font-weight:700;font-size:12px;color:{as_};text-align:right;white-space:nowrap;">{p:.1f}%</span>
             </div>"""
             else:
                 asm_rows += f"""
-            <div style="display:grid;grid-template-columns:100px 1fr 90px 90px 60px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;padding-left:8px;">
-              <span style="font-weight:700;font-size:13px;color:#334155;">{asm}</span>
-              <div style="background:#f1f5f9;border-radius:99px;height:8px;position:relative;">
+            <div class="ar">
+              <span style="font-weight:700;font-size:13px;color:#334155;padding-left:8px;">{asm}</span>
+              <div class="ar-bar" style="background:#f1f5f9;border-radius:99px;height:8px;position:relative;">
                 <div style="width:{abw:.1f}%;background:{ag};height:100%;border-radius:99px;position:relative;">
                   <div style="position:absolute;right:-1px;top:50%;transform:translateY(-50%);width:12px;height:12px;background:{as_};border-radius:50%;border:2px solid white;"></div>
                 </div>
               </div>
-              <span style="font-size:12px;color:#64748b;text-align:right;">{fmt_b(a)}</span>
-              <span style="font-size:12px;color:#94a3b8;text-align:right;">{fmt_b(t)}</span>
-              <span style="font-weight:700;font-size:13px;color:{as_};text-align:right;">{p:.1f}%</span>
+              <span class="ar-num" style="font-size:12px;color:#64748b;text-align:right;">{fmt_b(a)}</span>
+              <span class="ar-num" style="font-size:12px;color:#94a3b8;text-align:right;">{fmt_b(t)}</span>
+              <span style="font-weight:700;font-size:13px;color:{as_};text-align:right;white-space:nowrap;">{p:.1f}%</span>
             </div>"""
 
         sid = f"sku_{idx}"
@@ -409,8 +409,8 @@ def render_dashboard_html(records, month):
             </div>
           </div>
           <div id="{sid}" style="display:none;padding:0 18px 16px;border-top:1px solid #f1f5f9;">
-            <div style="display:grid;grid-template-columns:80px 1fr 90px 90px 60px;gap:10px;padding:8px 0;font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:.04em;text-transform:uppercase;">
-              <span>ASM</span><span>달성 진행</span><span style="text-align:right">실적</span><span style="text-align:right">목표</span><span style="text-align:right">달성률</span>
+            <div class="ar-hdr">
+              <span>ASM</span><span>달성 진행</span><span class="ar-num" style="text-align:right">실적</span><span class="ar-num" style="text-align:right">목표</span><span style="text-align:right">달성률</span>
             </div>
             {asm_rows}
           </div>
@@ -444,31 +444,31 @@ def render_dashboard_html(records, month):
         is_channel = asm in CHANNEL_ASMS
         if is_channel:
             asm_total_rows += f"""
-        <div style="display:grid;grid-template-columns:80px 1fr 90px 90px 60px;align-items:center;gap:10px;padding:7px 0 7px 0;border-bottom:1px solid #f1f5f9;background:#f8fbff;">
+        <div class="ar ar-ch">
           <span style="font-size:12px;color:#0369a1;display:flex;align-items:center;gap:2px;padding-left:6px;">
             <span style="color:#94a3b8;font-size:14px;line-height:1;">ㄴ</span>&nbsp;{asm}
           </span>
-          <div style="background:#e0f2fe;border-radius:99px;height:7px;position:relative;">
+          <div class="ar-bar" style="background:#e0f2fe;border-radius:99px;height:7px;position:relative;">
             <div style="width:{abw:.1f}%;background:{ag};height:100%;border-radius:99px;position:relative;opacity:0.85;">
               <div style="position:absolute;right:-1px;top:50%;transform:translateY(-50%);width:10px;height:10px;background:{as_};border-radius:50%;border:2px solid white;"></div>
             </div>
           </div>
-          <span style="font-size:11px;color:#64748b;text-align:right;">{fmt_b(asm_a)}</span>
-          <span style="font-size:11px;color:#94a3b8;text-align:right;">{fmt_b(asm_t)}</span>
-          <span style="font-weight:700;font-size:12px;color:{as_};text-align:right;">{p:.1f}%</span>
+          <span class="ar-num" style="font-size:11px;color:#64748b;text-align:right;">{fmt_b(asm_a)}</span>
+          <span class="ar-num" style="font-size:11px;color:#94a3b8;text-align:right;">{fmt_b(asm_t)}</span>
+          <span style="font-weight:700;font-size:12px;color:{as_};text-align:right;white-space:nowrap;">{p:.1f}%</span>
         </div>"""
         else:
             asm_total_rows += f"""
-        <div style="display:grid;grid-template-columns:80px 1fr 90px 90px 60px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;">
+        <div class="ar">
           <span style="font-weight:700;font-size:13px;color:#334155;">{asm}</span>
-          <div style="background:#f1f5f9;border-radius:99px;height:8px;position:relative;">
+          <div class="ar-bar" style="background:#f1f5f9;border-radius:99px;height:8px;position:relative;">
             <div style="width:{abw:.1f}%;background:{ag};height:100%;border-radius:99px;position:relative;">
               <div style="position:absolute;right:-1px;top:50%;transform:translateY(-50%);width:12px;height:12px;background:{as_};border-radius:50%;border:2px solid white;"></div>
             </div>
           </div>
-          <span style="font-size:12px;color:#64748b;text-align:right;">{fmt_b(asm_a)}</span>
-          <span style="font-size:12px;color:#94a3b8;text-align:right;">{fmt_b(asm_t)}</span>
-          <span style="font-weight:700;font-size:13px;color:{as_};text-align:right;">{p:.1f}%</span>
+          <span class="ar-num" style="font-size:12px;color:#64748b;text-align:right;">{fmt_b(asm_a)}</span>
+          <span class="ar-num" style="font-size:12px;color:#94a3b8;text-align:right;">{fmt_b(asm_t)}</span>
+          <span style="font-weight:700;font-size:13px;color:{as_};text-align:right;white-space:nowrap;">{p:.1f}%</span>
         </div>"""
 
     total_bar = f"""
@@ -493,8 +493,8 @@ def render_dashboard_html(records, month):
         </div>
       </div>
       <div id="total_asm" style="display:none;padding:0 18px 16px;border-top:1px solid #f1f5f9;">
-        <div style="display:grid;grid-template-columns:80px 1fr 90px 90px 60px;gap:10px;padding:8px 0;font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:.04em;text-transform:uppercase;">
-          <span>ASM</span><span>달성 진행</span><span style="text-align:right">실적</span><span style="text-align:right">목표</span><span style="text-align:right">달성률</span>
+        <div class="ar-hdr">
+          <span>ASM</span><span>달성 진행</span><span class="ar-num" style="text-align:right">실적</span><span class="ar-num" style="text-align:right">목표</span><span style="text-align:right">달성률</span>
         </div>
         {asm_total_rows}
       </div>
@@ -508,6 +508,17 @@ def render_dashboard_html(records, month):
       .sc{{background:#0f172a;border-radius:14px;padding:16px;}}
       .sl{{font-size:11px;font-weight:600;letter-spacing:.06em;color:#64748b;text-transform:uppercase;margin-bottom:8px;}}
       .sv{{font-size:24px;font-weight:700;letter-spacing:-.5px;}}
+      /* ASM 행 공통 */
+      .ar{{display:grid;grid-template-columns:90px 1fr 86px 86px 58px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;}}
+      .ar-ch{{background:#f8fbff;padding:7px 0;}}
+      .ar-hdr{{display:grid;grid-template-columns:90px 1fr 86px 86px 58px;gap:10px;padding:8px 0;font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:.04em;text-transform:uppercase;}}
+      /* 모바일: 이름+% 한 줄, 바 전체폭 두 번째 줄 */
+      @media(max-width:520px){{
+        .ar{{grid-template-columns:1fr auto;grid-template-rows:auto auto;gap:3px 8px;padding:8px 0;}}
+        .ar-bar{{grid-column:1/-1;margin-top:2px;}}
+        .ar-num{{display:none;}}
+        .ar-hdr{{display:none;}}
+      }}
     </style>
     <script>
       function sendHeight() {{

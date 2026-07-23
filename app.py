@@ -156,7 +156,12 @@ def fmt_b(v):
     return f"{v/1e9:.2f} tỷ"
 
 def get_target(asm, sku, month):
-    return TARGETS.get(asm, {}).get(sku, {}).get(month)
+    t = TARGETS.get(asm, {}).get(sku, {}).get(month)
+    if asm == "VAN" and sku == "KHĂN ƯỚT" and t is not None:
+        wm = TARGETS.get("WINMART",   {}).get(sku, {}).get(month) or 0
+        lm = TARGETS.get("LOTTEMART", {}).get(sku, {}).get(month) or 0
+        t = t + wm + lm
+    return t
 
 def get_actual(records, month, asm, sku):
     return records.get(str(month), {}).get(asm, {}).get(sku, 0) or 0

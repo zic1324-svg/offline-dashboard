@@ -707,7 +707,18 @@ window.parent.document.head.appendChild(s);
         st.info("위 월별 버튼을 클릭하면 달성 현황이 표시됩니다.")
         return
 
-    st.subheader(f"📈 {view_month}월 달성 현황")
+    # 데이터 기준일 표시
+    as_of = records.get("_meta", {}).get(str(view_month))
+    col_title, col_asof = st.columns([3, 1])
+    with col_title:
+        st.subheader(f"📈 {view_month}월 달성 현황")
+    with col_asof:
+        if as_of:
+            d = datetime.strptime(as_of, "%Y-%m-%d")
+            st.markdown(
+                f'<div style="text-align:right;padding-top:18px;font-size:12px;color:#94a3b8;">📅 {d.month}/{d.day}일까지 데이터</div>',
+                unsafe_allow_html=True
+            )
 
     if page == "✏️ 실적 입력":
         admin_page(records, view_month)

@@ -643,43 +643,38 @@ def admin_page(records, month):
 
 # ─── 메인 ──────────────────────────────────────────────────────────────────────
 def main():
-    # 인증
+    # 인증 — 조회는 비밀번호 불필요
     if "role" not in st.session_state:
-        st.markdown("<h2 style='text-align:center;margin-top:80px;'>🔐 오프라인 영업부 달성률</h2>", unsafe_allow_html=True)
-        c1, c2, c3 = st.columns([1, 2, 1])
-        with c2:
-            pwd = st.text_input("비밀번호", type="password", placeholder="비밀번호를 입력하세요")
-            if st.button("로그인", use_container_width=True, type="primary"):
-                try:
-                    apw = st.secrets.get("ADMIN_PASSWORD", "")
-                    vpw = st.secrets.get("APP_PASSWORD", "")
-                except Exception:
-                    apw = vpw = ""
-                if apw and pwd == apw:
-                    st.session_state["role"] = "admin"
-                    st.rerun()
-                elif vpw and pwd == vpw:
-                    st.session_state["role"] = "viewer"
-                    st.rerun()
-                else:
-                    st.error("비밀번호가 올바르지 않습니다.")
-        return
+        st.session_state["role"] = "viewer"
 
     role = st.session_state["role"]
 
     # 사이드바
     with st.sidebar:
         st.markdown("## 📊 오프라인 영업부")
-        st.markdown(f"**접속 권한:** {'관리자' if role == 'admin' else '조회'}")
         if role == "admin":
+            st.markdown(f"**접속 권한:** 관리자")
             st.markdown("---")
             page = st.radio("화면", ["📊 대시보드", "✏️ 실적 입력"])
+            st.markdown("---")
+            if st.button("🚪 로그아웃"):
+                st.session_state["role"] = "viewer"
+                st.rerun()
         else:
             page = "📊 대시보드"
-        st.markdown("---")
-        if st.button("🚪 로그아웃"):
-            del st.session_state["role"]
-            st.rerun()
+            st.markdown("---")
+            with st.expander("🔑 관리자 로그인"):
+                apwd = st.text_input("관리자 비밀번호", type="password", key="admin_pw_input")
+                if st.button("로그인", key="admin_login_btn"):
+                    try:
+                        apw = st.secrets.get("ADMIN_PASSWORD", "")
+                    except Exception:
+                        apw = ""
+                    if apw and apwd == apw:
+                        st.session_state["role"] = "admin"
+                        st.rerun()
+                    else:
+                        st.error("비밀번호가 올바르지 않습니다.")
 
     records = load_records()
     st.title("📊 오프라인 영업부 달성 현황")

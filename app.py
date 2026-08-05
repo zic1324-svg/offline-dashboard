@@ -196,24 +196,32 @@ def month_icon(records, month):
 
 # ─── Excel 파싱 ─────────────────────────────────────────────────────────────────
 def parse_excel_actuals(file_bytes):
-    import openpyxl, re
+    import openpyxl, re, calendar
     from io import BytesIO
     wb = openpyxl.load_workbook(BytesIO(file_bytes), data_only=True)
     ws = wb.active
 
-    # 월/연도 감지
-    month = year = None
+    # 월/연도/종료일 감지
+    month = year = end_day = None
     for row in ws.iter_rows(min_row=1, max_row=10, values_only=True):
         for cell in row:
-            if cell and 'K' in str(cell) and '/' in str(cell):
-                m = re.search(r'(\d{1,2})/(\d{4})', str(cell))
-                if m:
-                    month, year = int(m.group(1)), int(m.group(2))
-                    break
-        if month:
-            break
+            if not cell: continue
+            s = str(cell)
+            # "Đến ngày : DD/MM/YYYY" 형식 (부분월)
+            dm = re.search(r'Đến ngày\s*:\s*(\d{1,2})/(\d{1,2})/(\d{4})', s)
+            if dm:
+                end_day, month, year = int(dm.group(1)), int(dm.group(2)), int(dm.group(3))
+                break
+            # "Kỳ : MM/YYYY" 형식 (전체월)
+            km = re.search(r'(\d{1,2})/(\d{4})', s)
+            if km and not month:
+                month, year = int(km.group(1)), int(km.group(2))
+        if month: break
     if not month:
-        raise ValueError("파일에서 월 정보(Kỳ)를 찾을 수 없습니다")
+        raise ValueError("파일에서 월 정보를 찾을 수 없습니다")
+    # 전체월이면 말일 설정
+    if not end_day:
+        end_day = calendar.monthrange(year, month)[1]
 
     # 실적 컬럼 인덱스 (0-based)
     SKU_COLS = {
@@ -278,7 +286,7 @@ def parse_excel_actuals(file_bytes):
                 for sku, cols in SKU_COLS.items():
                     result[ch][sku] += get_val(row, cols)
 
-    return month, year, result
+    return month, year, end_day, result
 
 
 # ─── HTML 렌더러 ────────────────────────────────────────────────────────────────
@@ -572,8 +580,8 @@ def admin_page(records, month):
         if uploaded:
             try:
                 file_bytes = uploaded.read()
-                m, y, data = parse_excel_actuals(file_bytes)
-                st.success(f"✅ {y}년 {m}월 데이터 파싱 완료")
+                m, y, end_d, data = parse_excel_actuals(file_bytes)
+                st.success(f"✅ {y}년 {m}월 {end_d}일까지 데이터 파싱 완료")
 
                 # 미리보기
                 preview_rows = []
@@ -588,15 +596,17 @@ def admin_page(records, month):
 
                 if st.button("💾 이 데이터로 저장", type="primary", key=f"xl_save_{month}"):
                     ms = str(m)
-                    records.setdefault(ms, {})
+                    records[ms] = {}
                     for asm in ASM_LIST:
-                        records[ms].setdefault(asm, {})
+                        records[ms][asm] = {}
                         for sku in SKU_LIST:
                             v = data[asm].get(sku, 0)
                             if v:
                                 records[ms][asm][sku] = v
+                    records.setdefault("_meta", {})
+                    records["_meta"][ms] = f"{y}-{m:02d}-{end_d:02d}"
                     save_records(records)
-                    st.success(f"✅ {m}월 실적 저장 완료!")
+                    st.success(f"✅ {m}월 실적 저장 완료! ({m}/{end_d}일까지 데이터)")
                     st.rerun()
             except Exception as e:
                 st.error(f"파싱 오류: {e}")

@@ -2,14 +2,15 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import json
+import re
 import urllib.request
 import urllib.error
 from pathlib import Path
 from datetime import datetime
 
 st.set_page_config(
-    page_title="오프라인 영업부 달성률 (Sale In)",
-    page_icon="📊",
+    page_title="오프라인 영업부 달성률 (Sale Out)",
+    page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -23,7 +24,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ─── 타겟 데이터 (2026년 오프라인 영업부) ─────────────────────────────────────────
+# ─── 타겟 (Sale In과 동일) ────────────────────────────────────────────────────
 TARGETS = {
     "TU": {
         "BS VÀ HMP CŨ": {1:860000000,2:860000000,3:860000000,4:860000000,5:860000000,6:860000000,7:860000000,8:860000000,9:860000000,10:860000000,11:860000000,12:860000000},
@@ -109,10 +110,96 @@ ASM_LIST  = ["TU", "VINH", "TU,HOI", "LAM", "HAI", "QUOC", "HUNG", "NHU", "VAN",
 SKU_ICON  = {"BS VÀ HMP CŨ": "🍼", "GIẶT XẢ": "👕", "PPSU": "👑", "KHĂN ƯỚT": "🧻", "SỮA TẮM": "🛁"}
 DATA_DIR  = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
-GIST_FILE = "offline_records.json"
+GIST_FILE = "saleout_records.json"
+
+# ─── 판매처 코드 → ASM 매핑 (ASM별 관리샵 파일 기준) ──────────────────────────
+STORE_ASM = {
+    'KPP.AGI.0003': 'NHU',
+    'KPP.BDI.0004': 'LAM',
+    'KPP.BDU.0005': 'QUOC',
+    'KPP.BGI.0004': 'TU',
+    'KPP.BLI.0001': 'NHU',
+    'KPP.BNI.0005': 'TU',
+    'KPP.BPH.0005': 'QUOC',
+    'KPP.BRV.0004': 'QUOC',
+    'KPP.BTH.0002': 'QUOC',
+    'KPP.BTR.0003': 'HUNG',
+    'KPP.CBA.0003': 'TU',
+    'KPP.CMA.0002': 'NHU',
+    'KPP.CTH.0006': 'NHU',
+    'KPP.DLA.00007': 'LAM',
+    'KPP.DLA.0005': 'HAI',
+    'KPP.DLA.0006': 'HAI',
+    'KPP.DNA.00004': 'LAM',
+    'KPP.DNA.0003': 'LAM',
+    'KPP.DNO.0004': 'HAI',
+    'KPP.DON.00008': 'QUOC',
+    'KPP.DON.00009': 'QUOC',
+    'KPP.DON.0005': 'QUOC',
+    'KPP.DTH.0004': 'NHU',
+    'KPP.GLA.0001': 'HAI',
+    'KPP.HAN.0009': 'TU',
+    'KPP.HAN.0010': 'VINH',
+    'KPP.HCM.00004': 'QUOC',
+    'KPP.HCM.0003': 'HUNG',
+    'KPP.HGI.0001': 'TU',
+    'KPP.HPH.00002': 'VINH',
+    'KPP.HPH.00003': 'VINH',
+    'KPP.HTI.00007': 'TU,HOI',
+    'KPP.HUE.00006': 'LAM',
+    'KPP.HYE.0005': 'VINH',
+    'KPP.KGI.0004': 'NHU',
+    'KPP.KHH.00005': 'HAI',
+    'KPP.KHH.00006': 'HAI',
+    'KPP.KHH.00007': 'HAI',
+    'KPP.LAN.0004': 'HUNG',
+    'KPP.LCA.00002': 'TU',
+    'KPP.LDO.0003': 'HAI',
+    'KPP.LDO.0006': 'HAI',
+    'KPP.LDO.0008': 'HAI',
+    'KPP.LSO.0002': 'TU',
+    'KPP.NAN.0006': 'TU,HOI',
+    'KPP.NBI.00003': 'TU,HOI',
+    'KPP.NDI.0006': 'TU,HOI',
+    'KPP.PTH.00009': 'TU',
+    'KPP.PTH.0008': 'TU',
+    'KPP.QBI.0002': 'TU,HOI',
+    'KPP.QNA.0002': 'LAM',
+    'KPP.QNG.00004': 'LAM',
+    'KPP.QNI.0004': 'VINH',
+    'KPP.QTR.0002': 'LAM',
+    'KPP.STR.0015': 'NHU',
+    'KPP.TBI.0004': 'TU,HOI',
+    'KPP.TGI.0003': 'HUNG',
+    'KPP.THO.00006': 'TU,HOI',
+    'KPP.THO.0005': 'TU,HOI',
+    'KPP.TNG.0003': 'TU',
+    'KPP.TNI.00003': 'QUOC',
+    'KPP.TQU.00002': 'TU',
+    'KPP.TVI.0002': 'NHU',
+    'KPP.VLO.0003': 'NHU',
+    'KPP.VPH.0002': 'TU',
+}
 
 
-# ─── Gist 헬퍼 ──────────────────────────────────────────────────────────────────
+# ─── SKU 분류 (상품명 기준) ────────────────────────────────────────────────────
+def categorize(name):
+    n = str(name).lower()
+    if 'ppsu' in n:
+        return 'PPSU'
+    if 'khăn ướt' in n or 'khan uot' in n:
+        return 'KHĂN ƯỚT'
+    if 'nước rửa bình' in n or 'nuoc rua binh' in n \
+            or 'nước giặt bình' in n or 'nuoc giat binh' in n:
+        return 'GIẶT XẢ'
+    if 'sữa tắm' in n or 'sua tam' in n \
+            or 'bọt tắm' in n or 'bot tam' in n \
+            or 'bọt rửa tay' in n or 'bot rua tay' in n:
+        return 'SỮA TẮM'
+    return 'BS VÀ HMP CŨ'
+
+
+# ─── Gist 헬퍼 ────────────────────────────────────────────────────────────────
 def _use_gist():
     try:
         return bool(st.secrets.get("GIST_TOKEN") and st.secrets.get("GIST_ID"))
@@ -139,17 +226,17 @@ def load_records():
                 return json.loads(files[GIST_FILE]["content"])
         except Exception:
             pass
-    local = DATA_DIR / "offline_records.json"
+    local = DATA_DIR / GIST_FILE
     return json.loads(local.read_text(encoding="utf-8")) if local.exists() else {}
 
 def save_records(records):
     if _use_gist():
         _gist_req("PATCH", {"files": {GIST_FILE: {"content": json.dumps(records, ensure_ascii=False, indent=2)}}})
     else:
-        (DATA_DIR / "offline_records.json").write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+        (DATA_DIR / GIST_FILE).write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-# ─── 유틸 ──────────────────────────────────────────────────────────────────────
+# ─── 유틸 ────────────────────────────────────────────────────────────────────
 def fmt_b(v):
     if v is None or v == 0:
         return "0.00 tỷ"
@@ -167,7 +254,6 @@ def get_actual(records, month, asm, sku):
     return records.get(str(month), {}).get(asm, {}).get(sku, 0) or 0
 
 def month_summary(records, month):
-    """월 전체 합계: (total_target, total_actual, under_count)"""
     total_t, total_a, under = 0, 0, 0
     for sku in SKU_LIST:
         st_val, sa_val = 0, 0
@@ -194,102 +280,64 @@ def month_icon(records, month):
     return "✅" if p >= 100 else "🟡" if p >= 70 else "🔴"
 
 
-# ─── Excel 파싱 ─────────────────────────────────────────────────────────────────
+# ─── Excel 파싱 (Sale Out 전용) ───────────────────────────────────────────────
 def parse_excel_actuals(file_bytes):
-    import openpyxl, re, calendar
+    import openpyxl, calendar
     from io import BytesIO
     wb = openpyxl.load_workbook(BytesIO(file_bytes), data_only=True)
     ws = wb.active
+    rows = list(ws.iter_rows(min_row=1, values_only=True))
 
-    # 월/연도/종료일 감지
+    # 월/날짜 감지 (col2 = Ngày hạch toán 날짜값에서)
     month = year = end_day = None
-    for row in ws.iter_rows(min_row=1, max_row=10, values_only=True):
-        for cell in row:
-            if not cell: continue
-            s = str(cell)
-            # "Đến ngày : DD/MM/YYYY" 형식 (부분월)
-            dm = re.search(r'Đến ngày\s*:\s*(\d{1,2})/(\d{1,2})/(\d{4})', s)
-            if dm:
-                end_day, month, year = int(dm.group(1)), int(dm.group(2)), int(dm.group(3))
-                break
-            # "Kỳ : MM/YYYY" 형식 (전체월)
-            km = re.search(r'(\d{1,2})/(\d{4})', s)
-            if km and not month:
-                month, year = int(km.group(1)), int(km.group(2))
-        if month: break
+    for row in rows[1:]:
+        date_val = row[2] if len(row) > 2 else None
+        if date_val and hasattr(date_val, 'month'):
+            if not month:
+                month = date_val.month
+                year  = date_val.year
+            if not end_day or date_val.day > end_day:
+                end_day = date_val.day
+
     if not month:
         raise ValueError("파일에서 월 정보를 찾을 수 없습니다")
-    # 전체월이면 말일 설정
     if not end_day:
         end_day = calendar.monthrange(year, month)[1]
 
-    # 실적 컬럼 인덱스 (0-based)
-    SKU_COLS = {
-        "BS VÀ HMP CŨ": [14],
-        "GIẶT XẢ":      [16],
-        "PPSU":         [20],
-        "KHĂN ƯỚT":    [22, 26],
-        "SỮA TẮM":     [24],
-    }
+    result   = {asm: {sku: 0.0 for sku in SKU_LIST} for asm in ASM_LIST}
+    unmapped = {}
 
-    def get_val(row, cols):
-        return sum((row[c] or 0) for c in cols if c < len(row))
-
-    result = {asm: {sku: 0 for sku in SKU_LIST} for asm in ASM_LIST}
-
-    # ASM 코드 → 대시보드 ASM명
-    ASM_CODE = {
-        "02401": "TU",
-        "03344": "VINH",
-        "00887": "LAM",
-        "01683": "HAI",
-        "00331": "QUOC",
-        "00318": "HUNG",
-        "01987": "NHU",
-        "01565": "VAN",
-    }
-    if month <= 6:
-        ASM_CODE["00323"] = "TU,HOI"
-
-    for row in ws.iter_rows(min_row=11, values_only=True):
-        if not row[0] or not row[1]:
+    for row in rows[1:]:
+        if not row[0]:
             continue
-        code  = str(row[0]).strip()
-        level = str(row[1]).strip()
-        name  = str(row[2]).strip() if row[2] else ''
+        store_code = str(row[5]).strip() if row[5] else ''
+        prod_name  = str(row[12]).strip() if len(row) > 12 and row[12] else ''
+        qty        = row[14] if len(row) > 14 else None
+        price      = row[15] if len(row) > 15 else None
 
-        # ASM 합계 행
-        if level == 'ASM' and name.startswith('Total - '):
-            asm = ASM_CODE.get(code)
-            if asm:
-                for sku, cols in SKU_COLS.items():
-                    result[asm][sku] += get_val(row, cols)
-            # TU,HOI 7월 이후: TU(02401) 포함
-            if month >= 7 and code == "02401":
-                for sku, cols in SKU_COLS.items():
-                    result["TU,HOI"][sku] += get_val(row, cols)
+        if not store_code or not prod_name:
+            continue
+        try:
+            qty_f   = float(qty or 0)
+            price_f = float(price or 0)
+        except (ValueError, TypeError):
+            continue
+        if qty_f <= 0 or price_f <= 0:
+            continue
 
-        # TU,HOI 7월 이후: HOI(02191) SUP 합계 포함
-        if level == 'Total - SUP' and month >= 7 and code == "02191":
-            for sku, cols in SKU_COLS.items():
-                result["TU,HOI"][sku] += get_val(row, cols)
+        amount = qty_f * price_f
+        asm    = STORE_ASM.get(store_code)
+        if not asm:
+            unmapped[store_code] = unmapped.get(store_code, 0) + amount
+            continue
 
-        # WINMART / LOTTEMART (고객명 필터, 개별 행)
-        if row[4] and level not in ('Total - SUP', 'ASM'):
-            customer = str(row[4]).upper()
-            ch = None
-            if 'WINMART' in customer:
-                ch = 'WINMART'
-            elif 'LOTTE' in customer:
-                ch = 'LOTTEMART'
-            if ch:
-                for sku, cols in SKU_COLS.items():
-                    result[ch][sku] += get_val(row, cols)
+        sku = categorize(prod_name)
+        result[asm][sku] += amount
 
-    return month, year, end_day, result
+    return month, year, end_day, result, unmapped
 
 
-# ─── HTML 렌더러 ────────────────────────────────────────────────────────────────
+# ─── HTML 렌더러 ──────────────────────────────────────────────────────────────
 def bar_colors(pct):
     if pct >= 100:
         return "#10b981", "linear-gradient(90deg,#059669,#10b981)"
@@ -320,14 +368,12 @@ def _sku_bar_row(icon, sku, pct, sku_a, sku_t, solid, grad):
       </div>
     </div>"""
 
-
 def render_dashboard_html(records, month):
     total_t, total_a, under_count = month_summary(records, month)
-    total_pct  = total_a / total_t * 100 if total_t else 0
-    pct_color  = "#10b981" if total_pct >= 100 else "#f59e0b" if total_pct >= 70 else "#ef4444"
+    total_pct   = total_a / total_t * 100 if total_t else 0
+    pct_color   = "#10b981" if total_pct >= 100 else "#f59e0b" if total_pct >= 70 else "#ef4444"
     under_color = "#10b981" if under_count == 0 else "#ef4444"
 
-    # ── 요약 카드 ──
     summary = f"""
     <div class="sg">
       <div class="sc"><div class="sl">전체 달성률</div><div class="sv" style="color:{pct_color};">{total_pct:.1f}%</div></div>
@@ -336,7 +382,6 @@ def render_dashboard_html(records, month):
       <div class="sc"><div class="sl">미달 SKU</div><div class="sv" style="color:{under_color};">{under_count}개</div></div>
     </div>"""
 
-    # ── SKU 아코디언 + ASM 드릴다운 ──
     sku_sections = ""
     for idx, sku in enumerate(SKU_LIST):
         icon = SKU_ICON.get(sku, "")
@@ -363,7 +408,6 @@ def render_dashboard_html(records, month):
         solid, grad = bar_colors(pct)
         bar_row = _sku_bar_row(icon, sku, pct, sku_a, sku_t, solid, grad)
 
-        # ASM 드릴다운 행들
         asm_rows = ""
         CHANNEL_ASMS = {"WINMART", "LOTTEMART"}
         for asm in ASM_LIST:
@@ -376,11 +420,11 @@ def render_dashboard_html(records, month):
             abw = min(p, 100)
             is_channel = asm in CHANNEL_ASMS
             if p >= 100:
-                badge = f'<span style="background:#d1fae5;color:#065f46;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">✅ 달성</span>'
+                badge = '<span style="background:#d1fae5;color:#065f46;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">✅ 달성</span>'
             elif p >= 70:
-                badge = f'<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">⚠️ 진행중</span>'
+                badge = '<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">⚠️ 진행중</span>'
             else:
-                badge = f'<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">🚨 미달</span>'
+                badge = '<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">🚨 미달</span>'
 
             if is_channel:
                 asm_rows += f"""
@@ -429,10 +473,8 @@ def render_dashboard_html(records, month):
           </div>
         </div>"""
 
-    # 전체 합계 바 (ASM 아코디언)
     tb_w = min(total_pct, 100)
     ts, tg = bar_colors(total_pct)
-
     asm_total_rows = ""
     CHANNEL_ASMS = {"WINMART", "LOTTEMART"}
     for asm in ASM_LIST:
@@ -448,12 +490,6 @@ def render_dashboard_html(records, month):
         p = asm_a / asm_t * 100
         as_, ag = bar_colors(p)
         abw = min(p, 100)
-        if p >= 100:
-            badge = '<span style="background:#d1fae5;color:#065f46;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">✅ 달성</span>'
-        elif p >= 70:
-            badge = '<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">⚠️ 진행중</span>'
-        else:
-            badge = '<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">🚨 미달</span>'
         is_channel = asm in CHANNEL_ASMS
         if is_channel:
             asm_total_rows += f"""
@@ -521,11 +557,9 @@ def render_dashboard_html(records, month):
       .sc{{background:#0f172a;border-radius:14px;padding:16px;}}
       .sl{{font-size:11px;font-weight:600;letter-spacing:.06em;color:#64748b;text-transform:uppercase;margin-bottom:8px;}}
       .sv{{font-size:24px;font-weight:700;letter-spacing:-.5px;}}
-      /* ASM 행 공통 */
       .ar{{display:grid;grid-template-columns:90px 1fr 86px 86px 58px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;}}
       .ar-ch{{background:#f8fbff;padding:7px 0;}}
       .ar-hdr{{display:grid;grid-template-columns:90px 1fr 86px 86px 58px;gap:10px;padding:8px 0;font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:.04em;text-transform:uppercase;}}
-      /* 모바일: 이름+% 한 줄, 바 전체폭 두 번째 줄 */
       @media(max-width:520px){{
         .ar{{grid-template-columns:1fr auto;grid-template-rows:auto auto;gap:3px 8px;padding:8px 0;}}
         .ar-bar{{grid-column:1/-1;margin-top:2px;}}
@@ -534,32 +568,21 @@ def render_dashboard_html(records, month):
       }}
     </style>
     <script>
-      function sendHeight() {{
-        var h = document.getElementById('root').scrollHeight + 24;
-        try {{
-          // 같은 도메인이므로 부모 DOM 직접 조작 가능
-          var frames = window.parent.document.querySelectorAll('iframe');
-          frames.forEach(function(f) {{
-            if (f.contentWindow === window) {{
-              f.style.height = h + 'px';
-              f.style.minHeight = h + 'px';
-            }}
-          }});
-        }} catch(e) {{}}
+      function sendHeight(){{
+        var h=document.getElementById('root').scrollHeight+24;
+        try{{
+          var frames=window.parent.document.querySelectorAll('iframe');
+          frames.forEach(function(f){{if(f.contentWindow===window){{f.style.height=h+'px';f.style.minHeight=h+'px';}}}});
+        }}catch(e){{}}
       }}
-      function toggle(id) {{
-        var el = document.getElementById(id);
-        var arrow = document.getElementById('arrow_' + id);
-        if (el.style.display === 'none') {{
-          el.style.display = 'block';
-          arrow.style.transform = 'rotate(90deg)';
-        }} else {{
-          el.style.display = 'none';
-          arrow.style.transform = 'rotate(0deg)';
-        }}
+      function toggle(id){{
+        var el=document.getElementById(id);
+        var arrow=document.getElementById('arrow_'+id);
+        if(el.style.display==='none'){{el.style.display='block';arrow.style.transform='rotate(90deg)';}}
+        else{{el.style.display='none';arrow.style.transform='rotate(0deg)';}}
         sendHeight();
       }}
-      window.addEventListener('load', function() {{ sendHeight(); }});
+      window.addEventListener('load',function(){{sendHeight();}});
     </script>
     <div id="root" style="font-family:'Inter',system-ui,sans-serif;background:#f8fafc;padding:16px;border-radius:16px;">
       {summary}
@@ -568,22 +591,28 @@ def render_dashboard_html(records, month):
     </div>"""
 
 
-# ─── 어드민 입력 ────────────────────────────────────────────────────────────────
+# ─── 어드민 입력 ──────────────────────────────────────────────────────────────
 def admin_page(records, month):
     st.markdown(f"### ✏️ {month}월 실적 입력")
 
-    tab_manual, tab_excel = st.tabs(["✏️ 수동 입력", "📂 Excel 업로드"])
+    tab_excel, tab_manual = st.tabs(["📂 Excel 업로드", "✏️ 수동 입력"])
 
     with tab_excel:
-        st.markdown("**월별 매출 Excel 파일을 업로드하면 자동으로 실적을 불러옵니다.**")
-        uploaded = st.file_uploader("Excel 파일 선택", type=["xlsx"], key=f"xl_{month}")
+        st.markdown("**세일아웃 Excel 파일을 업로드하면 자동으로 실적을 집계합니다.**")
+        uploaded = st.file_uploader("Excel 파일 선택 (thang X.xlsx)", type=["xlsx"], key=f"xl_{month}")
         if uploaded:
             try:
                 file_bytes = uploaded.read()
-                m, y, end_d, data = parse_excel_actuals(file_bytes)
+                m, y, end_d, data, unmapped = parse_excel_actuals(file_bytes)
                 st.success(f"✅ {y}년 {m}월 {end_d}일까지 데이터 파싱 완료")
 
-                # 미리보기
+                if unmapped:
+                    with st.expander(f"⚠ 매핑 안된 판매처 코드 {len(unmapped)}개 (클릭하여 확인)"):
+                        for code, amt in sorted(unmapped.items(), key=lambda x: -x[1]):
+                            st.markdown(f"- `{code}`: {amt/1e6:.1f}triệu")
+                        st.caption("해당 코드를 ASM 파일에 추가하면 다음 업로드부터 반영됩니다.")
+
+                import pandas as pd
                 preview_rows = []
                 for asm in ASM_LIST:
                     row_data = {"ASM": asm}
@@ -591,7 +620,6 @@ def admin_page(records, month):
                         v = data[asm].get(sku, 0)
                         row_data[sku] = f"{v/1e9:.2f}tỷ" if v else "-"
                     preview_rows.append(row_data)
-                import pandas as pd
                 st.dataframe(pd.DataFrame(preview_rows).set_index("ASM"), use_container_width=True)
 
                 if st.button("💾 이 데이터로 저장", type="primary", key=f"xl_save_{month}"):
@@ -615,7 +643,6 @@ def admin_page(records, month):
         sel_asm = st.selectbox("ASM 선택", ASM_LIST, key=f"asm_sel_{month}")
         st.markdown(f"**{sel_asm}** — {month}월 실적 (단위: VND)")
         st.markdown("---")
-
         inputs = {}
         for sku in SKU_LIST:
             t = get_target(sel_asm, sku, month)
@@ -636,7 +663,6 @@ def admin_page(records, month):
                 solid, _ = bar_colors(p)
                 st.markdown(f"<div style='padding-top:28px;font-weight:700;color:{solid}'>{p:.1f}%</div>", unsafe_allow_html=True)
             inputs[sku] = val
-
         st.markdown("---")
         if st.button("💾 저장", type="primary", use_container_width=True, key=f"save_{month}"):
             ms = str(month)
@@ -651,19 +677,16 @@ def admin_page(records, month):
                 st.error(f"저장 실패: {e}")
 
 
-# ─── 메인 ──────────────────────────────────────────────────────────────────────
+# ─── 메인 ────────────────────────────────────────────────────────────────────
 def main():
-    # 인증 — 조회는 비밀번호 불필요
     if "role" not in st.session_state:
         st.session_state["role"] = "viewer"
-
     role = st.session_state["role"]
 
-    # 사이드바
     with st.sidebar:
-        st.markdown("## 📊 오프라인 영업부 (Sale In)")
+        st.markdown("## 📦 오프라인 영업부 (Sale Out)")
         if role == "admin":
-            st.markdown(f"**접속 권한:** 관리자")
+            st.markdown("**접속 권한:** 관리자")
             st.markdown("---")
             page = st.radio("화면", ["📊 대시보드", "✏️ 실적 입력"])
             st.markdown("---")
@@ -687,21 +710,19 @@ def main():
                         st.error("비밀번호가 올바르지 않습니다.")
 
     records = load_records()
-    st.title("📊 오프라인 영업부 달성 현황 (Sale In)")
+    st.title("📦 오프라인 영업부 달성 현황 (Sale Out)")
 
-    # ── 월별 기록 버튼 ──
     st.markdown("### 📅 월별 기록")
     components.html("""<script>
-var s = window.parent.document.createElement('style');
-s.textContent = 'button[data-testid="stBaseButton-secondary"] p { white-space: nowrap !important; font-size: 12px !important; }';
+var s=window.parent.document.createElement('style');
+s.textContent='button[data-testid="stBaseButton-secondary"] p{white-space:nowrap!important;font-size:12px!important;}';
 window.parent.document.head.appendChild(s);
 </script>""", height=0)
     month_cols = st.columns(12)
     for m, col in zip(range(1, 13), month_cols):
         with col:
             icon = month_icon(records, m)
-            label = f"{icon} {m}월"
-            if st.button(label, key=f"mbtn_{m}", use_container_width=True):
+            if st.button(f"{icon} {m}월", key=f"mbtn_{m}", use_container_width=True):
                 st.session_state["view_month"] = m
                 st.session_state.pop("sel_sku", None)
 
@@ -712,24 +733,21 @@ window.parent.document.head.appendChild(s);
         st.info("위 월별 버튼을 클릭하면 달성 현황이 표시됩니다.")
         return
 
-    # 데이터 기준일 표시
     as_of = records.get("_meta", {}).get(str(view_month))
     col_title, col_asof = st.columns([3, 1])
     with col_title:
-        st.subheader(f"📈 {view_month}월 달성 현황")
+        st.subheader(f"📈 {view_month}월 달성 현황 (Sale Out)")
     with col_asof:
         if as_of:
             d = datetime.strptime(as_of, "%Y-%m-%d")
             st.markdown(
                 f'<div style="text-align:right;padding-top:18px;font-size:12px;color:#94a3b8;">📅 {d.month}/{d.day}일까지 데이터</div>',
-                unsafe_allow_html=True
-            )
+                unsafe_allow_html=True)
 
     if page == "✏️ 실적 입력":
         admin_page(records, view_month)
         return
 
-    # ── 대시보드 HTML (아코디언 포함, 높이 자동조절) ──
     html = render_dashboard_html(records, view_month)
     components.html(html, height=700, scrolling=False)
 

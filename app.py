@@ -716,7 +716,7 @@ window.parent.document.head.appendChild(s);
     as_of = records.get("_meta", {}).get(str(view_month))
     col_title, col_asof = st.columns([3, 1])
     with col_title:
-        st.subheader(f"📈 {view_month}월 달성 현황")
+        st.subheader(f"📈 {view_month}월 달성 현황 (Sale In)")
     with col_asof:
         if as_of:
             d = datetime.strptime(as_of, "%Y-%m-%d")

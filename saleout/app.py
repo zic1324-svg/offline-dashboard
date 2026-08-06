@@ -10,7 +10,7 @@ from datetime import datetime
 
 st.set_page_config(
     page_title="오프라인 영업부 달성률 (Sale Out)",
-    page_icon="📦",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )

@@ -719,7 +719,7 @@ def main():
                         st.error("비밀번호가 올바르지 않습니다.")
 
     records = load_records()
-    st.title("📦 오프라인 영업부 달성 현황 (Sale Out)")
+    st.title("📊 오프라인 영업부 달성 현황 (Sale Out)")
 
     st.markdown("### 📅 월별 기록")
     components.html("""<script>

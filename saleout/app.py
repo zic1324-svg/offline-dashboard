@@ -179,6 +179,15 @@ STORE_ASM = {
     'KPP.TVI.0002': 'NHU',
     'KPP.VLO.0003': 'NHU',
     'KPP.VPH.0002': 'TU',
+    'KPP.HPH.0001': 'VINH',
+    'KPP.QNG.0003': 'LAM',
+    'KPP.KHH.0004': 'HAI',
+    'KPP.KHH.0003': 'HAI',
+    'KPP.THO.0004': 'TU,HOI',
+    'KPP.HTI.0006': 'TU,HOI',
+    'KPP.DON.0007': 'QUOC',
+    'KPP.TQU.0001': 'TU',
+    'KPP.NBI.0002': 'TU,HOI',
 }
 
 

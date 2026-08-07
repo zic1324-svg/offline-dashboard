@@ -157,6 +157,7 @@ STORE_ASM = {
     'KPP.LDO.0003': 'HAI',
     'KPP.LDO.0006': 'HAI',
     'KPP.LDO.0008': 'HAI',
+    'KPP.LDO.00009': 'HAI',
     'KPP.LSO.0002': 'TU',
     'KPP.NAN.0006': 'TU,HOI',
     'KPP.NBI.00003': 'TU,HOI',

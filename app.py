@@ -572,7 +572,7 @@ def render_dashboard_html(records, month):
 def admin_page(records, month):
     st.markdown(f"### ✏️ {month}월 실적 입력")
 
-    tab_manual, tab_excel = st.tabs(["✏️ 수동 입력", "📂 Excel 업로드"])
+    tab_excel, tab_manual = st.tabs(["📗 Excel 업로드", "✏️ 수동 입력"])
 
     with tab_excel:
         st.markdown("**월별 매출 Excel 파일을 업로드하면 자동으로 실적을 불러옵니다.**")

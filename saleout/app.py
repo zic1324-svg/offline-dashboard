@@ -269,13 +269,13 @@ def month_summary(records, month):
         st_val, sa_val = 0, 0
         for asm in ASM_LIST:
             t = get_target(asm, sku, month)
+            sa_val += get_actual(records, month, asm, sku)  # 단종 SKU도 실적 포함
             if t is None or t == 0:
                 continue
             st_val += t
-            sa_val += get_actual(records, month, asm, sku)
+        total_a += sa_val  # 실적은 항상 집계
         if st_val > 0:
             total_t += st_val
-            total_a += sa_val
             if sa_val < st_val:
                 under += 1
     return total_t, total_a, under

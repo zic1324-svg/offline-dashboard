@@ -138,7 +138,18 @@ def load_records():
             if GIST_FILE in files:
                 return json.loads(files[GIST_FILE]["content"])
         except Exception:
-            pass
+            # 토큰 만료 시 인증 없이 공개 Gist API 재시도
+            try:
+                gist_id = st.secrets["GIST_ID"]
+                req = urllib.request.Request(
+                    f"https://api.github.com/gists/{gist_id}",
+                    headers={"Accept": "application/vnd.github.v3+json"})
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    files = json.loads(r.read()).get("files", {})
+                    if GIST_FILE in files:
+                        return json.loads(files[GIST_FILE]["content"])
+            except Exception:
+                pass
     local = DATA_DIR / "offline_records.json"
     return json.loads(local.read_text(encoding="utf-8")) if local.exists() else {}
 

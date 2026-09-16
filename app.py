@@ -465,13 +465,16 @@ def render_dashboard_html(records, month):
                     if sv == 0:
                         continue
                     share = sv / a * 100 if a else 0
+                    bar_w = min(share, 100)
                     sup_rows_html += f"""
                 <div class="sup-row">
                   <span style="font-size:11px;color:#475569;padding-left:24px;">└ {sup_name}</span>
-                  <div></div>
+                  <div style="background:#e2e8f0;border-radius:99px;height:5px;position:relative;">
+                    <div style="width:{bar_w:.1f}%;background:#94a3b8;border-radius:99px;height:100%;"></div>
+                  </div>
                   <span class="ar-num" style="font-size:11px;color:#64748b;text-align:right;">{fmt_b(sv)}</span>
                   <span class="ar-num" style="font-size:11px;color:#94a3b8;text-align:right;"></span>
-                  <span style="font-size:11px;color:#94a3b8;text-align:right;white-space:nowrap;">{share:.0f}%</span>
+                  <span style="font-size:11px;color:#64748b;font-weight:600;text-align:right;white-space:nowrap;">{share:.0f}%</span>
                 </div>"""
 
                 has_sup = bool(sup_rows_html)

@@ -259,7 +259,7 @@ def parse_excel_actuals(file_bytes, file2_bytes=None):
     if month <= 6:
         ASM_CODE["00323"] = "TU,HOI"
 
-    # ─ SUP→ASM 매핑 (salein_XX-2 기반) ─
+    # ─ SUP→ASM 매핑 (salein_XX-2 기반, SUP이름+MaKH 조합 매칭) ─
     sup_code_asm = {}  # sup_code -> asm_abbr
     if file2_bytes:
         ASM_FULL = {
@@ -272,38 +272,32 @@ def parse_excel_actuals(file_bytes, file2_bytes=None):
             'Kiều Phú Lâm': 'LAM',
             'Mai Hà Văn': 'VAN',
         }
+        SKIP_ASM = {'HANH'}  # 퇴직 ASM
         wb2 = openpyxl.load_workbook(BytesIO(file2_bytes), data_only=True)
         ws2 = wb2.active
-        makh_asm2 = {}
+
+        # salein_XX-2: SUP이름 → ASM 투표 (ASM 아래 나오는 SUP 이름 직접 파싱)
+        name_vote_map = {}
         cur_asm2 = None
         for r in range(8, ws2.max_row + 1):
             c1 = str(ws2.cell(r, 1).value or '').strip()
             c2 = str(ws2.cell(r, 2).value or '').strip()
             if c1 == 'ASM':
                 cur_asm2 = ASM_FULL.get(c2)
-            elif c1 == '' and c2.startswith(('KPP.', 'KST.', 'KDL.')) and cur_asm2:
-                makh_asm2[c2] = cur_asm2
+            elif c1 == 'SUP' and cur_asm2 and cur_asm2 not in SKIP_ASM:
+                name_vote_map.setdefault(c2, Counter())[cur_asm2] += 1
+        sup_name_asm = {sname: v.most_common(1)[0][0] for sname, v in name_vote_map.items()}
 
-        # salein_XX-1에서 SUP코드별 MaKH 목록
-        sup_code_makhs = {}
+        # salein_XX-1: SUP코드 → 이름 수집 후 ASM 연결
         for row in ws.iter_rows(min_row=11, values_only=True):
             if not row[0] or not row[1]: continue
             code  = str(row[0]).strip()
             level = str(row[1]).strip()
-            makh  = str(row[3]).strip() if row[3] else ''
-            if level == 'SUP' and makh.startswith(('KPP.', 'KST.', 'KDL.')):
-                sup_code_makhs.setdefault(code, []).append(makh)
-
-        for sup_code, makhs in sup_code_makhs.items():
-            votes = Counter()
-            for makh in makhs:
-                if makh in makh_asm2:
-                    votes[makh_asm2[makh]] += 1
-            if votes:
-                # 퇴직 ASM(HANH) 제외 후 투표
-                valid = {k: v for k, v in votes.items() if k not in ('HANH',)}
-                winner = max(valid, key=valid.get) if valid else votes.most_common(1)[0][0]
-                sup_code_asm[sup_code] = winner
+            name  = str(row[2]).strip() if row[2] else ''
+            if level == 'Total - SUP' and name:
+                asm = sup_name_asm.get(name)
+                if asm:
+                    sup_code_asm[code] = asm
 
     # ─ 기본 실적 + SUP별 실적 파싱 ─
     sup_data = {}  # asm -> {sup_name -> {sku -> amount}}
@@ -349,6 +343,22 @@ def parse_excel_actuals(file_bytes, file2_bytes=None):
             if ch:
                 for sku, cols in SKU_COLS.items():
                     result[ch][sku] += get_val(row, cols)
+
+    # ─ 검증: ASM 합계 = SUP 합계 ─
+    total_col = 30  # col31 (0-indexed=30) = Total 실적
+    asm_sum = sup_sum = 0
+    for row in ws.iter_rows(min_row=11, values_only=True):
+        if not row[0] or not row[1]: continue
+        level = str(row[1]).strip()
+        name  = str(row[2] or '').strip()
+        val   = row[total_col] if len(row) > total_col and row[total_col] else 0
+        if level == 'ASM' and name.startswith('Total - '):
+            asm_sum += val
+        elif level == 'Total - SUP':
+            sup_sum += val
+    if abs(asm_sum - sup_sum) > 1000:
+        import warnings
+        warnings.warn(f"[검증 실패] ASM 합계({asm_sum:,.0f}) ≠ SUP 합계({sup_sum:,.0f}) — 파일 구조 확인 필요")
 
     return month, year, end_day, result, sup_data
 

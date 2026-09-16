@@ -209,7 +209,6 @@ def month_icon(records, month):
 def parse_excel_actuals(file_bytes, file2_bytes=None):
     import openpyxl, re, calendar
     from io import BytesIO
-    from collections import Counter
 
     wb = openpyxl.load_workbook(BytesIO(file_bytes), data_only=True)
     ws = wb.active
@@ -256,8 +255,7 @@ def parse_excel_actuals(file_bytes, file2_bytes=None):
         "01987": "NHU",
         "01565": "VAN",
     }
-    if month <= 6:
-        ASM_CODE["00323"] = "TU,HOI"
+    ASM_CODE["00323"] = "TU,HOI"  # Phan Đức Hạnh 구역 표기 = TU,HOI
 
     # ─ SUP→ASM 매핑 (salein_XX-2 기반, SUP이름+MaKH 조합 매칭) ─
     sup_code_asm = {}  # sup_code -> asm_abbr
@@ -271,22 +269,27 @@ def parse_excel_actuals(file_bytes, file2_bytes=None):
             'Nguyễn Văn Như': 'NHU',
             'Kiều Phú Lâm': 'LAM',
             'Mai Hà Văn': 'VAN',
+            'Phan Đức Hạnh(nghỉ việc T6.26)': 'TU,HOI',  # 퇴직 후 TU,HOI로 이관
         }
-        SKIP_ASM = {'HANH'}  # 퇴직 ASM
+        SKIP_ASM = set()  # 투표 제외 ASM 없음
         wb2 = openpyxl.load_workbook(BytesIO(file2_bytes), data_only=True)
         ws2 = wb2.active
 
-        # salein_XX-2: SUP이름 → ASM 투표 (ASM 아래 나오는 SUP 이름 직접 파싱)
-        name_vote_map = {}
-        cur_asm2 = None
+        # salein_XX-2: 구조 = SUP행들 → ASM 요약행 순서 (SUP이 먼저, ASM이 나중)
+        # SUP을 버퍼에 모아두다 ASM 행이 나오면 그 ASM에 배정
+        sup_name_asm = {}
+        pending_sups = []
         for r in range(8, ws2.max_row + 1):
             c1 = str(ws2.cell(r, 1).value or '').strip()
             c2 = str(ws2.cell(r, 2).value or '').strip()
-            if c1 == 'ASM':
-                cur_asm2 = ASM_FULL.get(c2)
-            elif c1 == 'SUP' and cur_asm2 and cur_asm2 not in SKIP_ASM:
-                name_vote_map.setdefault(c2, Counter())[cur_asm2] += 1
-        sup_name_asm = {sname: v.most_common(1)[0][0] for sname, v in name_vote_map.items()}
+            if c1 == 'SUP':
+                pending_sups.append(c2)
+            elif c1 == 'ASM':
+                asm2 = ASM_FULL.get(c2)
+                if asm2:
+                    for sname in pending_sups:
+                        sup_name_asm[sname] = asm2
+                pending_sups = []
 
         # salein_XX-1: SUP코드 → 이름 수집 후 ASM 연결
         for row in ws.iter_rows(min_row=11, values_only=True):
@@ -314,13 +317,6 @@ def parse_excel_actuals(file_bytes, file2_bytes=None):
             if asm:
                 for sku, cols in SKU_COLS.items():
                     result[asm][sku] += get_val(row, cols)
-            if month >= 7 and code == "02401":
-                for sku, cols in SKU_COLS.items():
-                    result["TU,HOI"][sku] += get_val(row, cols)
-
-        if level == 'Total - SUP' and month >= 7 and code == "02191":
-            for sku, cols in SKU_COLS.items():
-                result["TU,HOI"][sku] += get_val(row, cols)
 
         if level == 'Total - SUP' and file2_bytes:
             asm = sup_code_asm.get(code)

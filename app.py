@@ -319,15 +319,18 @@ def parse_excel_actuals(file_bytes, file2_bytes=None):
                     result[asm][sku] += get_val(row, cols)
 
         if level == 'Total - SUP' and file2_bytes:
-            asm = sup_code_asm.get(code)
-            if asm:
-                entry = {}
-                for sku, cols in SKU_COLS.items():
-                    v = get_val(row, cols)
-                    if v:
-                        entry[sku] = v
-                if entry:
-                    sup_data.setdefault(asm, {})[name] = entry
+            if code in ('NO002', 'NO220'):
+                pass  # No SUP 계열은 개별 배정 안 함 → 잔여분으로 처리
+            else:
+                asm = sup_code_asm.get(code)
+                if asm:
+                    entry = {}
+                    for sku, cols in SKU_COLS.items():
+                        v = get_val(row, cols)
+                        if v:
+                            entry[sku] = v
+                    if entry:
+                        sup_data.setdefault(asm, {})[name] = entry
 
         if row[4] and level not in ('Total - SUP', 'ASM'):
             customer = str(row[4]).upper()
@@ -338,7 +341,25 @@ def parse_excel_actuals(file_bytes, file2_bytes=None):
                 ch = 'LOTTEMART'
             if ch:
                 for sku, cols in SKU_COLS.items():
-                    result[ch][sku] += get_val(row, cols)
+                    if sku == 'KHĂN ƯỚT':  # 물티슈만 별도 채널 집계
+                        result[ch][sku] += get_val(row, cols)
+
+    # ─ No SUP 잔여분: ASM 합계 - 매핑된 SUP 합계 (SKU별) ─
+    if file2_bytes:
+        for asm in ASM_LIST:
+            if asm in ('WINMART', 'LOTTEMART'):
+                continue
+            asm_skus = result[asm]
+            mapped_skus = {sku: sum(sup_data.get(asm, {}).get(sname, {}).get(sku, 0)
+                                    for sname in sup_data.get(asm, {}))
+                           for sku in SKU_LIST}
+            residual = {}
+            for sku in SKU_LIST:
+                v = asm_skus.get(sku, 0) - mapped_skus.get(sku, 0)
+                if v > 0:
+                    residual[sku] = v
+            if residual:
+                sup_data.setdefault(asm, {})['No SUP'] = residual
 
     # ─ 검증: ASM 합계 = SUP 합계 ─
     total_col = 30  # col31 (0-indexed=30) = Total 실적

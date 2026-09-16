@@ -195,9 +195,11 @@ def month_icon(records, month):
 
 
 # ─── Excel 파싱 ─────────────────────────────────────────────────────────────────
-def parse_excel_actuals(file_bytes):
+def parse_excel_actuals(file_bytes, file2_bytes=None):
     import openpyxl, re, calendar
     from io import BytesIO
+    from collections import Counter
+
     wb = openpyxl.load_workbook(BytesIO(file_bytes), data_only=True)
     ws = wb.active
 
@@ -207,23 +209,19 @@ def parse_excel_actuals(file_bytes):
         for cell in row:
             if not cell: continue
             s = str(cell)
-            # "Đến ngày : DD/MM/YYYY" 형식 (부분월)
             dm = re.search(r'Đến ngày\s*:\s*(\d{1,2})/(\d{1,2})/(\d{4})', s)
             if dm:
                 end_day, month, year = int(dm.group(1)), int(dm.group(2)), int(dm.group(3))
                 break
-            # "Kỳ : MM/YYYY" 형식 (전체월)
             km = re.search(r'(\d{1,2})/(\d{4})', s)
             if km and not month:
                 month, year = int(km.group(1)), int(km.group(2))
         if month: break
     if not month:
         raise ValueError("파일에서 월 정보를 찾을 수 없습니다")
-    # 전체월이면 말일 설정
     if not end_day:
         end_day = calendar.monthrange(year, month)[1]
 
-    # 실적 컬럼 인덱스 (0-based)
     SKU_COLS = {
         "BS VÀ HMP CŨ": [14],
         "GIẶT XẢ":      [16],
@@ -237,7 +235,6 @@ def parse_excel_actuals(file_bytes):
 
     result = {asm: {sku: 0 for sku in SKU_LIST} for asm in ASM_LIST}
 
-    # ASM 코드 → 대시보드 ASM명
     ASM_CODE = {
         "02401": "TU",
         "03344": "VINH",
@@ -251,6 +248,55 @@ def parse_excel_actuals(file_bytes):
     if month <= 6:
         ASM_CODE["00323"] = "TU,HOI"
 
+    # ─ SUP→ASM 매핑 (salein_XX-2 기반) ─
+    sup_code_asm = {}  # sup_code -> asm_abbr
+    if file2_bytes:
+        ASM_FULL = {
+            'Trần Văn Thanh Hùng': 'HUNG',
+            'Diệp Thế Hải': 'HAI',
+            'Nguyễn Minh Quốc': 'QUOC',
+            'Nguyễn Văn Vịnh': 'VINH',
+            'Nguyễn Hữu Bảy Tú': 'TU',
+            'Nguyễn Văn Như': 'NHU',
+            'Kiều Phú Lâm': 'LAM',
+            'Mai Hà Văn': 'VAN',
+        }
+        wb2 = openpyxl.load_workbook(BytesIO(file2_bytes), data_only=True)
+        ws2 = wb2.active
+        makh_asm2 = {}
+        cur_asm2 = None
+        for r in range(8, ws2.max_row + 1):
+            c1 = str(ws2.cell(r, 1).value or '').strip()
+            c2 = str(ws2.cell(r, 2).value or '').strip()
+            if c1 == 'ASM':
+                cur_asm2 = ASM_FULL.get(c2)
+            elif c1 == '' and c2.startswith(('KPP.', 'KST.', 'KDL.')) and cur_asm2:
+                makh_asm2[c2] = cur_asm2
+
+        # salein_XX-1에서 SUP코드별 MaKH 목록
+        sup_code_makhs = {}
+        for row in ws.iter_rows(min_row=11, values_only=True):
+            if not row[0] or not row[1]: continue
+            code  = str(row[0]).strip()
+            level = str(row[1]).strip()
+            makh  = str(row[3]).strip() if row[3] else ''
+            if level == 'SUP' and makh.startswith(('KPP.', 'KST.', 'KDL.')):
+                sup_code_makhs.setdefault(code, []).append(makh)
+
+        for sup_code, makhs in sup_code_makhs.items():
+            votes = Counter()
+            for makh in makhs:
+                if makh in makh_asm2:
+                    votes[makh_asm2[makh]] += 1
+            if votes:
+                # 퇴직 ASM(HANH) 제외 후 투표
+                valid = {k: v for k, v in votes.items() if k not in ('HANH',)}
+                winner = max(valid, key=valid.get) if valid else votes.most_common(1)[0][0]
+                sup_code_asm[sup_code] = winner
+
+    # ─ 기본 실적 + SUP별 실적 파싱 ─
+    sup_data = {}  # asm -> {sup_name -> {sku -> amount}}
+
     for row in ws.iter_rows(min_row=11, values_only=True):
         if not row[0] or not row[1]:
             continue
@@ -258,23 +304,30 @@ def parse_excel_actuals(file_bytes):
         level = str(row[1]).strip()
         name  = str(row[2]).strip() if row[2] else ''
 
-        # ASM 합계 행
         if level == 'ASM' and name.startswith('Total - '):
             asm = ASM_CODE.get(code)
             if asm:
                 for sku, cols in SKU_COLS.items():
                     result[asm][sku] += get_val(row, cols)
-            # TU,HOI 7월 이후: TU(02401) 포함
             if month >= 7 and code == "02401":
                 for sku, cols in SKU_COLS.items():
                     result["TU,HOI"][sku] += get_val(row, cols)
 
-        # TU,HOI 7월 이후: HOI(02191) SUP 합계 포함
         if level == 'Total - SUP' and month >= 7 and code == "02191":
             for sku, cols in SKU_COLS.items():
                 result["TU,HOI"][sku] += get_val(row, cols)
 
-        # WINMART / LOTTEMART (고객명 필터, 개별 행)
+        if level == 'Total - SUP' and file2_bytes:
+            asm = sup_code_asm.get(code)
+            if asm:
+                entry = {}
+                for sku, cols in SKU_COLS.items():
+                    v = get_val(row, cols)
+                    if v:
+                        entry[sku] = v
+                if entry:
+                    sup_data.setdefault(asm, {})[name] = entry
+
         if row[4] and level not in ('Total - SUP', 'ASM'):
             customer = str(row[4]).upper()
             ch = None
@@ -286,7 +339,7 @@ def parse_excel_actuals(file_bytes):
                 for sku, cols in SKU_COLS.items():
                     result[ch][sku] += get_val(row, cols)
 
-    return month, year, end_day, result
+    return month, year, end_day, result, sup_data
 
 
 # ─── HTML 렌더러 ────────────────────────────────────────────────────────────────
@@ -375,12 +428,6 @@ def render_dashboard_html(records, month):
             as_, ag = bar_colors(p)
             abw = min(p, 100)
             is_channel = asm in CHANNEL_ASMS
-            if p >= 100:
-                badge = f'<span style="background:#d1fae5;color:#065f46;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">✅ 달성</span>'
-            elif p >= 70:
-                badge = f'<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">⚠️ 진행중</span>'
-            else:
-                badge = f'<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;">🚨 미달</span>'
 
             if is_channel:
                 asm_rows += f"""
@@ -398,9 +445,32 @@ def render_dashboard_html(records, month):
               <span style="font-weight:700;font-size:12px;color:{as_};text-align:right;white-space:nowrap;">{p:.1f}%</span>
             </div>"""
             else:
+                # SUP 드릴다운 데이터 확인
+                sup_map = records.get(str(month), {}).get(asm, {}).get('_sup', {})
+                sup_rows_html = ""
+                sup_id = f"sup_{idx}_{asm}"
+                for sup_name, sup_skus in sorted(sup_map.items()):
+                    sv = sup_skus.get(sku, 0)
+                    if sv == 0:
+                        continue
+                    share = sv / a * 100 if a else 0
+                    sup_rows_html += f"""
+                <div class="sup-row">
+                  <span style="font-size:11px;color:#475569;padding-left:24px;">└ {sup_name}</span>
+                  <div></div>
+                  <span class="ar-num" style="font-size:11px;color:#64748b;text-align:right;">{fmt_b(sv)}</span>
+                  <span class="ar-num" style="font-size:11px;color:#94a3b8;text-align:right;"></span>
+                  <span style="font-size:11px;color:#94a3b8;text-align:right;white-space:nowrap;">{share:.0f}%</span>
+                </div>"""
+
+                has_sup = bool(sup_rows_html)
+                onclick_attr = f'onclick="toggleSup(\'{sup_id}\')"' if has_sup else ''
+                arrow_html = f'<span id="sarrow_{sup_id}" style="font-size:9px;color:#94a3b8;transition:transform .2s;display:inline-block;">▶</span>' if has_sup else ''
+                cursor_style = "cursor:pointer;" if has_sup else ""
+
                 asm_rows += f"""
-            <div class="ar">
-              <span style="font-weight:700;font-size:13px;color:#334155;padding-left:8px;">{asm}</span>
+            <div class="ar" {onclick_attr} style="{cursor_style}">
+              <span style="font-weight:700;font-size:13px;color:#334155;padding-left:8px;display:flex;align-items:center;gap:4px;">{asm} {arrow_html}</span>
               <div class="ar-bar" style="background:#f1f5f9;border-radius:99px;height:8px;position:relative;">
                 <div style="width:{abw:.1f}%;background:{ag};height:100%;border-radius:99px;position:relative;">
                   <div style="position:absolute;right:-1px;top:50%;transform:translateY(-50%);width:12px;height:12px;background:{as_};border-radius:50%;border:2px solid white;"></div>
@@ -409,6 +479,9 @@ def render_dashboard_html(records, month):
               <span class="ar-num" style="font-size:12px;color:#64748b;text-align:right;">{fmt_b(a)}</span>
               <span class="ar-num" style="font-size:12px;color:#94a3b8;text-align:right;">{fmt_b(t)}</span>
               <span style="font-weight:700;font-size:13px;color:{as_};text-align:right;white-space:nowrap;">{p:.1f}%</span>
+            </div>
+            <div id="{sup_id}" style="display:none;background:#f8fafc;border-left:2px solid #e2e8f0;margin-left:8px;border-radius:0 0 8px 8px;">
+              {sup_rows_html}
             </div>"""
 
         sid = f"sku_{idx}"
@@ -525,12 +598,15 @@ def render_dashboard_html(records, month):
       .ar{{display:grid;grid-template-columns:90px 1fr 86px 86px 58px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;}}
       .ar-ch{{background:#f8fbff;padding:7px 0;}}
       .ar-hdr{{display:grid;grid-template-columns:90px 1fr 86px 86px 58px;gap:10px;padding:8px 0;font-size:11px;font-weight:600;color:#94a3b8;letter-spacing:.04em;text-transform:uppercase;}}
+      /* SUP 행 */
+      .sup-row{{display:grid;grid-template-columns:90px 1fr 86px 86px 58px;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #f1f5f9;}}
       /* 모바일: 이름+% 한 줄, 바 전체폭 두 번째 줄 */
       @media(max-width:520px){{
         .ar{{grid-template-columns:1fr auto;grid-template-rows:auto auto;gap:3px 8px;padding:8px 0;}}
         .ar-bar{{grid-column:1/-1;margin-top:2px;}}
         .ar-num{{display:none;}}
         .ar-hdr{{display:none;}}
+        .sup-row{{grid-template-columns:1fr auto;}}
       }}
     </style>
     <script>
@@ -559,6 +635,19 @@ def render_dashboard_html(records, month):
         }}
         sendHeight();
       }}
+      function toggleSup(id) {{
+        var el = document.getElementById(id);
+        var arrow = document.getElementById('sarrow_' + id);
+        if (!el) return;
+        if (el.style.display === 'none') {{
+          el.style.display = 'block';
+          if (arrow) arrow.style.transform = 'rotate(90deg)';
+        }} else {{
+          el.style.display = 'none';
+          if (arrow) arrow.style.transform = 'rotate(0deg)';
+        }}
+        sendHeight();
+      }}
       window.addEventListener('load', function() {{ sendHeight(); }});
     </script>
     <div id="root" style="font-family:'Inter',system-ui,sans-serif;background:#f8fafc;padding:16px;border-radius:16px;">
@@ -576,12 +665,18 @@ def admin_page(records, month):
 
     with tab_excel:
         st.markdown("**월별 매출 Excel 파일을 업로드하면 자동으로 실적을 불러옵니다.**")
-        uploaded = st.file_uploader("Excel 파일 선택", type=["xlsx"], key=f"xl_{month}")
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            uploaded = st.file_uploader("📄 salein_XX-1.xlsx (필수)", type=["xlsx"], key=f"xl_{month}")
+        with col_f2:
+            uploaded2 = st.file_uploader("📄 salein_XX-2.xlsx (SUP 드릴다운용, 선택)", type=["xlsx"], key=f"xl2_{month}")
         if uploaded:
             try:
-                file_bytes = uploaded.read()
-                m, y, end_d, data = parse_excel_actuals(file_bytes)
-                st.success(f"✅ {y}년 {m}월 {end_d}일까지 데이터 파싱 완료")
+                file_bytes  = uploaded.read()
+                file2_bytes = uploaded2.read() if uploaded2 else None
+                m, y, end_d, data, sup_data = parse_excel_actuals(file_bytes, file2_bytes)
+                st.success(f"✅ {y}년 {m}월 {end_d}일까지 데이터 파싱 완료" +
+                           (f" (SUP {sum(len(v) for v in sup_data.values())}개 인식)" if sup_data else ""))
 
                 # 미리보기
                 preview_rows = []
@@ -603,6 +698,9 @@ def admin_page(records, month):
                             v = data[asm].get(sku, 0)
                             if v:
                                 records[ms][asm][sku] = v
+                        # SUP 드릴다운 데이터 저장
+                        if asm in sup_data:
+                            records[ms][asm]['_sup'] = sup_data[asm]
                     records.setdefault("_meta", {})
                     records["_meta"][ms] = f"{y}-{m:02d}-{end_d:02d}"
                     save_records(records)

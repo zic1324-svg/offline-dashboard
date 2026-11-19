@@ -209,6 +209,7 @@ def ns_get_actual(ns_records, month, asm):
 
 def make_ns_ctx(ns_records):
     return {
+        "actual_only": True,   # 목표가 아직 없으면 실적만 표시
         "skus": [NS_SKU], "icon": NS_ICON,
         "target": lambda asm, sku, month: ns_get_target(ns_records, asm, month),
         "actual": lambda recs, month, asm, sku: ns_get_actual(ns_records, month, asm),
@@ -248,6 +249,8 @@ def month_icon(records, month, ctx=None):
         return "⬜"
     t, a, _ = month_summary(records, month, ctx)
     if t == 0:
+        if ctx and ctx.get("actual_only") and any(ctx["actual"](records, month, asm, k) for asm in ASM_LIST for k in ctx["skus"]):
+            return "📊"
         return "⬜"
     p = a / t * 100
     return "✅" if p >= 100 else "🟡" if p >= 70 else "🔴"
@@ -380,8 +383,57 @@ def _sku_bar_row(icon, sku, pct, sku_a, sku_t, solid, grad):
     </div>"""
 
 
+def render_actual_only_html(records, month, ctx):
+    """목표 미설정 상태: 실적(매출)만 ASM별로 표시 (엔젤엔손스 전용)"""
+    sku = ctx["skus"][0]; icon = ctx["icon"].get(sku, "")
+    rows = [(asm, ctx["actual"](records, month, asm, sku)) for asm in ASM_LIST]
+    rows = [(a, v) for a, v in rows if v]
+    rows.sort(key=lambda x: -x[1])
+    total = sum(v for _, v in rows)
+    mx = max((v for _, v in rows), default=0) or 1
+    body = ""
+    for asm, v in rows:
+        w = v / mx * 100
+        body += f"""
+        <div class="ar2">
+          <span style="font-weight:700;font-size:13px;color:#334155;">{asm}</span>
+          <div style="background:#f1f5f9;border-radius:99px;height:8px;"><div style="width:{w:.1f}%;background:linear-gradient(90deg,#34d399,#10b981);height:100%;border-radius:99px;"></div></div>
+          <span style="font-size:12px;color:#475569;text-align:right;font-weight:600;">{fmt_b(v)}</span>
+          <span style="font-size:11px;color:#94a3b8;text-align:right;">{v/total*100:.1f}%</span>
+        </div>"""
+    if not rows:
+        body = '<div style="padding:16px 0;color:#94a3b8;font-size:13px;">등록된 실적이 없습니다.</div>'
+    return f"""
+    <style>
+      body{{margin:0;overflow:hidden;}}
+      .ar2{{display:grid;grid-template-columns:90px 1fr 90px 50px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;}}
+    </style>
+    <script>
+      function sendHeight() {{
+        var h = document.getElementById('root').scrollHeight + 24;
+        try {{
+          var frames = window.parent.document.querySelectorAll('iframe');
+          frames.forEach(function(f) {{ if (f.contentWindow === window) {{ f.style.height = h + 'px'; f.style.minHeight = h + 'px'; }} }});
+        }} catch(e) {{}}
+      }}
+      window.addEventListener('load', function() {{ sendHeight(); }});
+    </script>
+    <div id="root" style="font-family:'Inter',system-ui,sans-serif;background:#f8fafc;padding:16px;border-radius:16px;">
+      <div style="background:#0f172a;border-radius:14px;padding:16px;margin-bottom:16px;">
+        <div style="font-size:11px;font-weight:600;letter-spacing:.06em;color:#64748b;margin-bottom:8px;">{icon} {sku} 매출 합계 (목표 미설정)</div>
+        <div style="font-size:24px;font-weight:700;color:#f1f5f9;">{fmt_b(total)}</div>
+      </div>
+      <div style="background:white;border-radius:12px;border:1px solid #e2e8f0;padding:6px 18px 10px;">
+        <div class="ar2" style="font-size:11px;font-weight:600;color:#94a3b8;"><span>ASM</span><span>매출 비중</span><span style="text-align:right">실적</span><span style="text-align:right">비중</span></div>
+        {body}
+      </div>
+    </div>"""
+
+
 def render_dashboard_html(records, month, ctx=None):
     ctx = ctx or ANGEL_CTX
+    if ctx.get("actual_only") and month_summary(records, month, ctx)[0] == 0:
+        return render_actual_only_html(records, month, ctx)
     SKU_LIST = ctx["skus"]; SKU_ICON = ctx["icon"]
     total_t, total_a, under_count = month_summary(records, month, ctx)
     total_pct  = total_a / total_t * 100 if total_t else 0

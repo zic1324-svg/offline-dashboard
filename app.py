@@ -791,7 +791,7 @@ def main():
     with col_ttl:
         st.title("📊 오프라인 영업부 달성 현황 (Sale In)")
     with col_sw:
-        st.markdown("<style>.st-key-company_switch{display:flex;justify-content:flex-end;}</style>"
+        st.markdown("<style>.st-key-company_switch{display:flex;justify-content:flex-end;}.st-key-company_switch button[data-testid=\"stBaseButton-segmented_controlActive\"]{background:#10b981 !important;border-color:#10b981 !important;color:#ffffff !important;}</style>"
                     "<div style='height:18px'></div>", unsafe_allow_html=True)
         with st.container(key="company_switch"):
             if hasattr(st, "segmented_control"):

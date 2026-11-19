@@ -791,13 +791,15 @@ def main():
     with col_ttl:
         st.title("📊 오프라인 영업부 달성 현황 (Sale In)")
     with col_sw:
-        st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
-        if hasattr(st, "segmented_control"):
-            company = st.segmented_control("회사", COMPANY_OPTIONS, default="엔젤",
-                                           key="company", label_visibility="collapsed")
-        else:
-            company = st.radio("회사", COMPANY_OPTIONS, horizontal=True,
-                               key="company", label_visibility="collapsed")
+        st.markdown("<style>.st-key-company_switch{display:flex;justify-content:flex-end;}</style>"
+                    "<div style='height:18px'></div>", unsafe_allow_html=True)
+        with st.container(key="company_switch"):
+            if hasattr(st, "segmented_control"):
+                company = st.segmented_control("회사", COMPANY_OPTIONS, default="엔젤",
+                                               key="company", label_visibility="collapsed")
+            else:
+                company = st.radio("회사", COMPANY_OPTIONS, horizontal=True,
+                                   key="company", label_visibility="collapsed")
     company = company or "엔젤"
     if company == "엔젤엔손스":
         ctx, recs = make_ns_ctx(ns_records), ns_records

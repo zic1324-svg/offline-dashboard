@@ -149,6 +149,30 @@ def save_records(records):
         (DATA_DIR / "offline_records.json").write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def load_ns_records():
+    if _use_gist():
+        try:
+            res = _gist_req("GET")
+            f = res.get("files", {}).get(NS_GIST_FILE)
+            if f:
+                c = f.get("content")
+                if f.get("truncated") or c is None:
+                    with urllib.request.urlopen(f["raw_url"]) as r:
+                        c = r.read().decode("utf-8")
+                return json.loads(c)
+        except Exception:
+            pass
+    local = DATA_DIR / NS_GIST_FILE
+    return json.loads(local.read_text(encoding="utf-8")) if local.exists() else {}
+
+def save_ns_records(ns_records):
+    body = json.dumps(ns_records, ensure_ascii=False, indent=2)
+    if _use_gist():
+        _gist_req("PATCH", {"files": {NS_GIST_FILE: {"content": body}}})
+    else:
+        (DATA_DIR / NS_GIST_FILE).write_text(body, encoding="utf-8")
+
+
 # ─── 유틸 ──────────────────────────────────────────────────────────────────────
 def fmt_b(v):
     if v is None or v == 0:
@@ -166,17 +190,52 @@ def get_target(asm, sku, month):
 def get_actual(records, month, asm, sku):
     return records.get(str(month), {}).get(asm, {}).get(sku, 0) or 0
 
-def month_summary(records, month):
+
+# ─── 회사 구분 (엔젤 / 엔젤엔손스 / 종합) ───────────────────────────────────────
+# 엔젤: 기존 SKU 5개 + 기존 목표·실적 (변경 없음)
+ANGEL_CTX = {"skus": SKU_LIST, "icon": SKU_ICON, "target": get_target, "actual": get_actual}
+
+# 엔젤엔손스: 같은 ASM, SKU는 기저귀만. 실적·목표는 별도 파일(offline_ns_records.json)에 저장
+NS_SKU = "기저귀"
+NS_ICON = {NS_SKU: "🧷"}
+NS_GIST_FILE = "offline_ns_records.json"
+COMPANY_OPTIONS = ["엔젤", "엔젤엔손스", "종합"]   # 종합이 제일 오른쪽
+
+def ns_get_target(ns_records, asm, month):
+    return (ns_records.get("_targets", {}).get(asm, {}) or {}).get(str(month))
+
+def ns_get_actual(ns_records, month, asm):
+    return ns_records.get(str(month), {}).get(asm, {}).get(NS_SKU, 0) or 0
+
+def make_ns_ctx(ns_records):
+    return {
+        "skus": [NS_SKU], "icon": NS_ICON,
+        "target": lambda asm, sku, month: ns_get_target(ns_records, asm, month),
+        "actual": lambda recs, month, asm, sku: ns_get_actual(ns_records, month, asm),
+    }
+
+def make_total_ctx(ns_records):
+    """종합: 엔젤 SKU 5개 + 엔젤엔손스 기저귀 (records 인자는 엔젤 records)"""
+    skus = SKU_LIST + [NS_SKU]
+    icon = dict(SKU_ICON); icon.update(NS_ICON)
+    def tgt(asm, sku, month):
+        return ns_get_target(ns_records, asm, month) if sku == NS_SKU else get_target(asm, sku, month)
+    def act(recs, month, asm, sku):
+        return ns_get_actual(ns_records, month, asm) if sku == NS_SKU else get_actual(recs, month, asm, sku)
+    return {"skus": skus, "icon": icon, "target": tgt, "actual": act}
+
+def month_summary(records, month, ctx=None):
     """월 전체 합계: (total_target, total_actual, under_count)"""
+    ctx = ctx or ANGEL_CTX
     total_t, total_a, under = 0, 0, 0
-    for sku in SKU_LIST:
+    for sku in ctx["skus"]:
         st_val, sa_val = 0, 0
         for asm in ASM_LIST:
-            t = get_target(asm, sku, month)
+            t = ctx["target"](asm, sku, month)
             if t is None or t == 0:
                 continue
             st_val += t
-            sa_val += get_actual(records, month, asm, sku)
+            sa_val += ctx["actual"](records, month, asm, sku)
         if st_val > 0:
             total_t += st_val
             total_a += sa_val
@@ -184,10 +243,10 @@ def month_summary(records, month):
                 under += 1
     return total_t, total_a, under
 
-def month_icon(records, month):
+def month_icon(records, month, ctx=None):
     if str(month) not in records:
         return "⬜"
-    t, a, _ = month_summary(records, month)
+    t, a, _ = month_summary(records, month, ctx)
     if t == 0:
         return "⬜"
     p = a / t * 100
@@ -321,8 +380,10 @@ def _sku_bar_row(icon, sku, pct, sku_a, sku_t, solid, grad):
     </div>"""
 
 
-def render_dashboard_html(records, month):
-    total_t, total_a, under_count = month_summary(records, month)
+def render_dashboard_html(records, month, ctx=None):
+    ctx = ctx or ANGEL_CTX
+    SKU_LIST = ctx["skus"]; SKU_ICON = ctx["icon"]
+    total_t, total_a, under_count = month_summary(records, month, ctx)
     total_pct  = total_a / total_t * 100 if total_t else 0
     pct_color  = "#10b981" if total_pct >= 100 else "#f59e0b" if total_pct >= 70 else "#ef4444"
     under_color = "#10b981" if under_count == 0 else "#ef4444"
@@ -342,11 +403,11 @@ def render_dashboard_html(records, month):
         icon = SKU_ICON.get(sku, "")
         sku_t, sku_a = 0, 0
         for asm in ASM_LIST:
-            t = get_target(asm, sku, month)
+            t = ctx["target"](asm, sku, month)
             if t is None or t == 0:
                 continue
             sku_t += t
-            sku_a += get_actual(records, month, asm, sku)
+            sku_a += ctx["actual"](records, month, asm, sku)
 
         if sku_t == 0:
             sku_sections += f"""
@@ -367,10 +428,10 @@ def render_dashboard_html(records, month):
         asm_rows = ""
         CHANNEL_ASMS = {"WINMART", "LOTTEMART"}
         for asm in ASM_LIST:
-            t = get_target(asm, sku, month)
+            t = ctx["target"](asm, sku, month)
             if t is None or t == 0:
                 continue
-            a = get_actual(records, month, asm, sku)
+            a = ctx["actual"](records, month, asm, sku)
             p = a / t * 100
             as_, ag = bar_colors(p)
             abw = min(p, 100)
@@ -438,11 +499,11 @@ def render_dashboard_html(records, month):
     for asm in ASM_LIST:
         asm_t, asm_a = 0, 0
         for sku in SKU_LIST:
-            t = get_target(asm, sku, month)
+            t = ctx["target"](asm, sku, month)
             if t is None or t == 0:
                 continue
             asm_t += t
-            asm_a += get_actual(records, month, asm, sku)
+            asm_a += ctx["actual"](records, month, asm, sku)
         if asm_t == 0:
             continue
         p = asm_a / asm_t * 100
@@ -651,6 +712,42 @@ def admin_page(records, month):
                 st.error(f"저장 실패: {e}")
 
 
+def admin_page_ns(ns_records, month):
+    """엔젤엔손스(기저귀) 월별 실적·목표 입력. 엑셀 업로드는 파일 형식 확정 후 추가."""
+    st.markdown(f"### ✏️ 엔젤엔손스 {month}월 실적 입력 (기저귀)")
+    st.markdown("ASM별 **실적**과 **목표**를 VND 단위로 입력합니다. 목표가 0이면 대시보드에 표시되지 않습니다.")
+    ms = str(month)
+    import pandas as pd
+    rows = []
+    for asm in ASM_LIST:
+        tgt = ns_get_target(ns_records, asm, month) or 0
+        act = ns_get_actual(ns_records, month, asm)
+        rows.append({"ASM": asm, "목표": int(tgt), "실적": int(act)})
+    df = pd.DataFrame(rows).set_index("ASM")
+    edited = st.data_editor(
+        df, key=f"ns_editor_{month}", use_container_width=True,
+        column_config={
+            "목표": st.column_config.NumberColumn("목표 (VND)", min_value=0, step=1_000_000, format="%d"),
+            "실적": st.column_config.NumberColumn("실적 (VND)", min_value=0, step=1_000_000, format="%d"),
+        })
+    as_of = st.date_input("데이터 기준일", value=datetime.now().date(), key=f"ns_asof_{month}")
+    if st.button("💾 저장", type="primary", use_container_width=True, key=f"ns_save_{month}"):
+        ns_records.setdefault(ms, {})
+        ns_records.setdefault("_targets", {})
+        for asm in ASM_LIST:
+            tgt = int(edited.loc[asm, "목표"] or 0)
+            act = int(edited.loc[asm, "실적"] or 0)
+            ns_records["_targets"].setdefault(asm, {})[ms] = tgt
+            ns_records[ms].setdefault(asm, {})[NS_SKU] = act
+        ns_records.setdefault("_meta", {})[ms] = as_of.strftime("%Y-%m-%d")
+        try:
+            save_ns_records(ns_records)
+            st.success(f"✅ 엔젤엔손스 {month}월 저장 완료!")
+            st.rerun()
+        except Exception as e:
+            st.error(f"저장 실패: {e}")
+
+
 # ─── 메인 ──────────────────────────────────────────────────────────────────────
 def main():
     # 인증 — 조회는 비밀번호 불필요
@@ -687,7 +784,27 @@ def main():
                         st.error("비밀번호가 올바르지 않습니다.")
 
     records = load_records()
-    st.title("📊 오프라인 영업부 달성 현황 (Sale In)")
+    ns_records = load_ns_records()
+
+    # 제목 + 오른쪽 위 회사 스위치 (엔젤 / 엔젤엔손스 / 종합)
+    col_ttl, col_sw = st.columns([5, 2])
+    with col_ttl:
+        st.title("📊 오프라인 영업부 달성 현황 (Sale In)")
+    with col_sw:
+        st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+        if hasattr(st, "segmented_control"):
+            company = st.segmented_control("회사", COMPANY_OPTIONS, default="엔젤",
+                                           key="company", label_visibility="collapsed")
+        else:
+            company = st.radio("회사", COMPANY_OPTIONS, horizontal=True,
+                               key="company", label_visibility="collapsed")
+    company = company or "엔젤"
+    if company == "엔젤엔손스":
+        ctx, recs = make_ns_ctx(ns_records), ns_records
+    elif company == "종합":
+        ctx, recs = make_total_ctx(ns_records), records
+    else:
+        ctx, recs = ANGEL_CTX, records
 
     # ── 월별 기록 버튼 ──
     st.markdown("### 📅 월별 기록")
@@ -699,7 +816,7 @@ window.parent.document.head.appendChild(s);
     month_cols = st.columns(12)
     for m, col in zip(range(1, 13), month_cols):
         with col:
-            icon = month_icon(records, m)
+            icon = month_icon(recs, m, ctx)
             label = f"{icon} {m}월"
             if st.button(label, key=f"mbtn_{m}", use_container_width=True):
                 st.session_state["view_month"] = m
@@ -713,10 +830,11 @@ window.parent.document.head.appendChild(s);
         return
 
     # 데이터 기준일 표시
-    as_of = records.get("_meta", {}).get(str(view_month))
+    as_of = recs.get("_meta", {}).get(str(view_month))
     col_title, col_asof = st.columns([3, 1])
     with col_title:
-        st.subheader(f"📈 {view_month}월 달성 현황 (Sale In)")
+        suffix = "" if company == "엔젤" else f" · {company}"
+        st.subheader(f"📈 {view_month}월 달성 현황 (Sale In){suffix}")
     with col_asof:
         if as_of:
             d = datetime.strptime(as_of, "%Y-%m-%d")
@@ -726,11 +844,16 @@ window.parent.document.head.appendChild(s);
             )
 
     if page == "✏️ 실적 입력":
-        admin_page(records, view_month)
+        if company == "엔젤엔손스":
+            admin_page_ns(ns_records, view_month)
+        elif company == "종합":
+            st.info("종합 화면은 입력 대상이 아닙니다. 오른쪽 위에서 '엔젤' 또는 '엔젤엔손스'를 선택해 입력해 주십시오.")
+        else:
+            admin_page(records, view_month)
         return
 
     # ── 대시보드 HTML (아코디언 포함, 높이 자동조절) ──
-    html = render_dashboard_html(records, view_month)
+    html = render_dashboard_html(recs, view_month, ctx)
     components.html(html, height=700, scrolling=False)
 
 

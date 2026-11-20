@@ -223,7 +223,7 @@ def make_total_ctx(ns_records):
         return ns_get_target(ns_records, asm, month) if sku == NS_SKU else get_target(asm, sku, month)
     def act(recs, month, asm, sku):
         return ns_get_actual(ns_records, month, asm) if sku == NS_SKU else get_actual(recs, month, asm, sku)
-    return {"skus": skus, "icon": icon, "target": tgt, "actual": act}
+    return {"skus": skus, "icon": icon, "target": tgt, "actual": act, "actual_only_skus": {NS_SKU}}
 
 def month_summary(records, month, ctx=None):
     """월 전체 합계: (total_target, total_actual, under_count)"""
@@ -430,6 +430,44 @@ def render_actual_only_html(records, month, ctx):
     </div>"""
 
 
+def _actual_only_sku_section(records, month, ctx, sku, idx):
+    """목표 없는 SKU(종합 탭의 엔젤엔손스 기저귀): 실적만 아코디언으로 표시"""
+    icon = ctx["icon"].get(sku, "")
+    rows = [(asm, ctx["actual"](records, month, asm, sku)) for asm in ASM_LIST]
+    rows = sorted([(a, v) for a, v in rows if v], key=lambda x: -x[1])
+    total = sum(v for _, v in rows)
+    if not total:
+        return None
+    mx = rows[0][1] or 1
+    body = ""
+    for asm, v in rows:
+        body += f"""
+        <div class="ar2">
+          <span style="font-weight:700;font-size:13px;color:#334155;padding-left:8px;">{asm}</span>
+          <div class="ar-bar" style="background:#f1f5f9;border-radius:99px;height:8px;"><div style="width:{v/mx*100:.1f}%;background:linear-gradient(90deg,#34d399,#10b981);height:100%;border-radius:99px;"></div></div>
+          <span class="ar-num" style="font-size:12px;color:#475569;text-align:right;font-weight:600;">{fmt_b(v)}</span>
+          <span class="ar-num" style="font-size:11px;color:#94a3b8;text-align:right;">{v/total*100:.1f}%</span>
+        </div>"""
+    sid = f"sku_{idx}"
+    return f"""
+        <style>.ar2{{display:grid;grid-template-columns:90px 1fr 86px 58px;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;}}
+        @media(max-width:520px){{.ar2{{grid-template-columns:1fr auto;gap:3px 8px;}}.ar2 .ar-bar{{grid-column:1/-1;}}.ar2 .ar-num{{display:none;}}}}</style>
+        <div style="margin-bottom:10px;background:white;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
+          <div onclick="toggle('{sid}')" style="padding:16px 18px;cursor:pointer;user-select:none;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:16px;">{icon}</span><span style="font-weight:600;font-size:14px;color:#1e293b;">{sku}</span><span style="background:#e0f2fe;color:#0369a1;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;margin-left:4px;">목표 미설정</span></div>
+              <span style="font-weight:700;font-size:15px;color:#10b981;">{fmt_b(total)}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:#94a3b8;">
+              <span id="arrow_{sid}" style="transition:transform .2s;">▶</span><span>ASM별 상세 보기</span>
+            </div>
+          </div>
+          <div id="{sid}" style="display:none;padding:0 18px 16px;border-top:1px solid #f1f5f9;">
+            <div class="ar2" style="font-size:11px;font-weight:600;color:#94a3b8;"><span>ASM</span><span>매출 비중</span><span class="ar-num" style="text-align:right">실적</span><span class="ar-num" style="text-align:right">비중</span></div>
+            {body}
+          </div>
+        </div>"""
+
 def render_dashboard_html(records, month, ctx=None):
     ctx = ctx or ANGEL_CTX
     if ctx.get("actual_only") and month_summary(records, month, ctx)[0] == 0:
@@ -460,6 +498,12 @@ def render_dashboard_html(records, month, ctx=None):
                 continue
             sku_t += t
             sku_a += ctx["actual"](records, month, asm, sku)
+
+        if sku_t == 0 and sku in ctx.get("actual_only_skus", ()):
+            sec = _actual_only_sku_section(records, month, ctx, sku, idx)
+            if sec:
+                sku_sections += sec
+                continue
 
         if sku_t == 0:
             sku_sections += f"""
